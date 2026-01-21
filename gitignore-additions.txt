@@ -1,0 +1,35 @@
+# ===== ADD THESE TO YOUR .gitignore =====
+# (Copy any lines that aren't already in your .gitignore)
+
+# Expo (CRITICAL - must be ignored)
+.expo/
+.expo-shared/
+
+# Native build directories (managed workflow - regenerated on build)
+android/
+ios/
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+web-build/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Metro bundler
+.metro-health-check*
+
+# EAS
+.eas/

@@ -1,0 +1,31 @@
+RGMG Analytics - Quick Commands
+================================
+
+== LOCAL DEVELOPMENT ==
+npx expo start --clear          # Start dev server (clears cache)
+npx expo start                  # Start dev server
+
+== DEPLOY TO NETLIFY (WEB) ==
+npx expo export --platform web
+netlify deploy --prod --dir=dist
+
+== DEPLOY TO GOOGLE PLAY (ANDROID) ==
+eas build --platform android --profile production
+eas submit --platform android
+
+== DEPLOY TO APP STORE (iOS) ==
+eas build --platform ios --profile production
+eas submit --platform ios
+
+== ADD NEW SEASON DATA ==
+node update-season.js --season 10 --type regular --players playersSeason10.csv --goalies goaliesSeason10.csv
+node update-season.js --season 10 --type playoffs --players playersSeason10p.csv --goalies goaliesSeason10p.csv
+node update-season.js --season 10 --images --east "url" --west "url" --playoffs "url"
+
+== CLEAR/RESET ==
+rmdir /s /q node_modules
+npm install
+npx expo start --clear
+
+== CHECK BUILD STATUS ==
+eas build:list

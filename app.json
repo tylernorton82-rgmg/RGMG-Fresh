@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "RGMG Analytics",
+    "slug": "rgmg-analytics",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "plugins": [
+      "./plugins/withGradleFix"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rgmg.analytics",
+      "buildNumber": "2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.rgmg.analytics",
+      "versionCode": 2
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "254522c6-29d4-498f-a104-f13801d216e9"
+      }
+    }
+  }
+}
