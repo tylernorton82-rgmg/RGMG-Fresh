@@ -193,6 +193,17 @@ const CACHE_PREFIX = 'rgmg_wiki_photo_v6_';
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for "no photo found"
 
+const ALLOWED_PHOTO_ORIGINS = [
+  'https://en.wikipedia.org',
+  'https://upload.wikimedia.org',
+  'https://assets.nhle.com',
+];
+
+function isAllowedPhotoUrl(url) {
+  if (!url) return true; // null/undefined url means negative cache entry — allow
+  return ALLOWED_PHOTO_ORIGINS.some(origin => String(url).startsWith(origin));
+}
+
 function readCache(key) {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
@@ -200,6 +211,7 @@ function readCache(key) {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
     if (Date.now() - (parsed.ts || 0) > (parsed.url ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS)) return null;
+    if (!isAllowedPhotoUrl(parsed.url)) return null;
     return parsed; // { url, ts, description }
   } catch {
     return null;

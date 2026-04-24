@@ -19,6 +19,9 @@ const openDb = () => {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+  }).catch((err) => {
+    dbPromise = null;
+    return Promise.reject(err);
   });
   return dbPromise;
 };

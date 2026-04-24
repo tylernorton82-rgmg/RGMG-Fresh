@@ -202,27 +202,12 @@ ${allSeasons.map(s => `  '${seasonNumberToString(s)}': ${s}`).join(',\n')}
     // Try to extract existing images
     const imageMatch = existingContent.match(/export const SEASON_IMAGES = \{([\s\S]*?)\};/);
     if (imageMatch) {
-      // Parse each season's images
+      // Parse each season's images using a single regex capturing all three fields per block
       const imageBlock = imageMatch[1];
-      const seasonMatches = imageBlock.matchAll(/(\d+):\s*\{\s*\n?\s*east:\s*'([^']*)'/g);
+      const seasonMatches = imageBlock.matchAll(/(\d+):\s*\{[^}]*east:\s*'([^']*)'[^}]*west:\s*'([^']*)'[^}]*playoffs:\s*'([^']*)'/g);
       for (const match of seasonMatches) {
         const sNum = parseInt(match[1]);
-        existingImages[sNum] = { east: match[2] };
-      }
-      // Get west and playoffs too
-      const westMatches = imageBlock.matchAll(/west:\s*'([^']*)'/g);
-      const playoffsMatches = imageBlock.matchAll(/playoffs:\s*'([^']*)'/g);
-      let idx = 0;
-      for (const match of westMatches) {
-        const sNum = allSeasons[idx] || idx + 1;
-        if (existingImages[sNum]) existingImages[sNum].west = match[1];
-        idx++;
-      }
-      idx = 0;
-      for (const match of playoffsMatches) {
-        const sNum = allSeasons[idx] || idx + 1;
-        if (existingImages[sNum]) existingImages[sNum].playoffs = match[1];
-        idx++;
+        existingImages[sNum] = { east: match[2], west: match[3], playoffs: match[4] };
       }
     }
   }

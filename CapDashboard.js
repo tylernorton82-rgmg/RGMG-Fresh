@@ -149,7 +149,7 @@ export default function CapDashboard({ theme, seasons, playerDatabase, calculate
     };
   }, [teamData, playerDatabase, selectedSeason, calculateTRUEi]);
 
-  const capMax = teamData ? teamData.capHit + teamData.capSpace : CAP_MAX_DEFAULT;
+  const capMax = teamData ? Math.max(teamData.capHit + teamData.capSpace, teamData.capHit) : CAP_MAX_DEFAULT;
   const capPct = teamData ? (teamData.capHit / capMax) * 100 : 0;
 
   return (
