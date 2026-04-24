@@ -13,7 +13,10 @@ export const SEASONS = [
   '2022-23',
   '2023-24',
   '2024-25',
-  '2025-26'
+  '2025-26',
+  '2026-27',
+  '2027-28',
+  '2028-29'
 ];
 
 export const SEASON_TO_NUMBER = {
@@ -26,7 +29,10 @@ export const SEASON_TO_NUMBER = {
   '2022-23': 7,
   '2023-24': 8,
   '2024-25': 9,
-  '2025-26': 10
+  '2025-26': 10,
+  '2026-27': 11,
+  '2027-28': 12,
+  '2028-29': 13
 };
 
 // JSON data imports - Players Regular Season
@@ -40,6 +46,9 @@ const players2223r = require('./assets/data/2223r.json');
 const players2324r = require('./assets/data/2324r.json');
 const players2425r = require('./assets/data/2425r.json');
 const players2526r = require('./assets/data/2526r.json');
+const players2627r = require('./assets/data/2627r.json');
+const players2728r = require('./assets/data/2728r.json');
+const players2829r = require('./assets/data/2829r.json');
 
 // JSON data imports - Players Playoffs
 const players1617p = require('./assets/data/1617p.json');
@@ -51,6 +60,8 @@ const players2122p = require('./assets/data/2122p.json');
 const players2223p = require('./assets/data/2223p.json');
 const players2324p = require('./assets/data/2324p.json');
 const players2425p = require('./assets/data/2425p.json');
+const players2526p = require('./assets/data/2526p.json');
+const players2627p = require('./assets/data/2627p.json');
 
 // JSON data imports - Goalies Regular Season
 const goalies1r = require('./assets/data/goaliesSeason1.json');
@@ -63,6 +74,9 @@ const goalies7r = require('./assets/data/goaliesSeason7.json');
 const goalies8r = require('./assets/data/goaliesSeason8.json');
 const goalies9r = require('./assets/data/goaliesSeason9.json');
 const goalies10r = require('./assets/data/goaliesSeason10.json');
+const goalies11r = require('./assets/data/goaliesSeason11.json');
+const goalies12r = require('./assets/data/goaliesSeason12.json');
+const goalies13r = require('./assets/data/goaliesSeason13.json');
 
 // JSON data imports - Goalies Playoffs
 const goalies1p = require('./assets/data/goaliesSeason1p.json');
@@ -74,6 +88,8 @@ const goalies6p = require('./assets/data/goaliesSeason6p.json');
 const goalies7p = require('./assets/data/goaliesSeason7p.json');
 const goalies8p = require('./assets/data/goaliesSeason8p.json');
 const goalies9p = require('./assets/data/goaliesSeason9p.json');
+const goalies10p = require('./assets/data/goaliesSeason10p.json');
+const goalies11p = require('./assets/data/goaliesSeason11p.json');
 
 // Data maps
 export const PLAYER_DATA = {
@@ -86,7 +102,10 @@ export const PLAYER_DATA = {
   '2022-23': { regular: players2223r, playoffs: players2223p },
   '2023-24': { regular: players2324r, playoffs: players2324p },
   '2024-25': { regular: players2425r, playoffs: players2425p },
-  '2025-26': { regular: players2526r, playoffs: [] },
+  '2025-26': { regular: players2526r, playoffs: players2526p },
+  '2026-27': { regular: players2627r, playoffs: players2627p },
+  '2027-28': { regular: players2728r, playoffs: [] },
+  '2028-29': { regular: players2829r, playoffs: [] },
 };
 
 export const GOALIE_DATA = {
@@ -99,7 +118,10 @@ export const GOALIE_DATA = {
   '2022-23': { regular: goalies7r, playoffs: goalies7p },
   '2023-24': { regular: goalies8r, playoffs: goalies8p },
   '2024-25': { regular: goalies9r, playoffs: goalies9p },
-  '2025-26': { regular: goalies10r, playoffs: [] },
+  '2025-26': { regular: goalies10r, playoffs: goalies10p },
+  '2026-27': { regular: goalies11r, playoffs: goalies11p },
+  '2027-28': { regular: goalies12r, playoffs: [] },
+  '2028-29': { regular: goalies13r, playoffs: [] },
 };
 
 // Season images - loaded from Discord CDN
@@ -152,6 +174,21 @@ export const SEASON_IMAGES = {
   10: { 
     east: 'https://media.discordapp.net/attachments/1459049171070877767/1463311649527169108/Screenshot_2026-01-20_181726.png?ex=69715eac&is=69700d2c&hm=e4f185ebb9df70aeca99f63842151253d413ea9b0e57194939f3c780dbaa081e&=&format=webp&quality=lossless&width=1518&height=938',
     west: 'https://media.discordapp.net/attachments/1459049171070877767/1463311666060984361/Screenshot_2026-01-20_181732.png?ex=69715eb0&is=69700d30&hm=2d77048be10b31a38137b1311626d9cac1377c9c3c9e1ce6f1cbaabe26844282&=&format=webp&quality=lossless&width=1518&height=939',
+    playoffs: ''
+  },
+  11: { 
+    east: '',
+    west: '',
+    playoffs: ''
+  },
+  12: { 
+    east: '',
+    west: '',
+    playoffs: ''
+  },
+  13: { 
+    east: '',
+    west: '',
     playoffs: ''
   },
 };

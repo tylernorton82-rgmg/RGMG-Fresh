@@ -7,7 +7,7 @@ npx expo start                  # Start dev server
 
 == DEPLOY TO NETLIFY (WEB) ==
 npx expo export --platform web
-netlify deploy --prod --dir=dist
+vercel --prod
 
 == DEPLOY TO GOOGLE PLAY (ANDROID) ==
 eas build --platform android --profile production
@@ -18,8 +18,8 @@ eas build --platform ios --profile production
 eas submit --platform ios
 
 == ADD NEW SEASON DATA ==
-node update-season.js --season 10 --type regular --players playersSeason10.csv --goalies goaliesSeason10.csv
-node update-season.js --season 10 --type playoffs --players playersSeason10p.csv --goalies goaliesSeason10p.csv
+node update-season.js --season 12 --type regular --players playersSeason12.csv --goalies goaliesSeason12.csv
+node update-season.js --season 12 --type playoffs --players playersSeason12p.csv --goalies goaliesSeason12p.csv
 node update-season.js --season 10 --images --east "url" --west "url" --playoffs "url"
 
 == CLEAR/RESET ==

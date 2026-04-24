@@ -52,30 +52,40 @@ const normalizeSeasonType = (value) => {
 // Simple bar chart component with title
 const BAR_MAX_WIDTH = 280; // Fixed max width for all bars
 
-const BarChart = React.forwardRef(({ data, maxValue, color, title }, ref) => {
+const BarChart = React.forwardRef(({ data, maxValue, color, title, theme, onItemClick }, ref) => {
+  const t = theme || {};
   return (
-    <View style={styles.chartContainer} ref={ref} id={title?.replace(/\s/g, '-')}>
-      {title && <Text style={styles.chartTitle}>{title}</Text>}
+    <View style={[styles.chartContainer, { backgroundColor: t.bgCard || '#fff' }]} ref={ref} id={title?.replace(/\s/g, '-')}>
+      {title && <Text style={[styles.chartTitle, { color: t.text || '#333' }]}>{title}</Text>}
       {data.map((item, index) => {
         const barWidth = Math.max(8, (Math.abs(item.value) / maxValue) * BAR_MAX_WIDTH);
         const isNegative = item.value < 0;
-        
+        const displayName = item.name.length > 15 ? item.name.substring(0, 15) + '...' : item.name;
+
         return (
           <View key={index} style={styles.barRow}>
-            <Text style={styles.barLabel} numberOfLines={1}>
-              {item.name.length > 15 ? item.name.substring(0, 15) + '...' : item.name}
-            </Text>
+            {onItemClick ? (
+              <TouchableOpacity onPress={() => onItemClick(item.name)} style={{ width: 'auto' }}>
+                <Text style={[styles.barLabel, { color: t.text || '#333', textDecorationLine: 'underline' }]} numberOfLines={1}>
+                  {displayName}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={[styles.barLabel, { color: t.text || '#333' }]} numberOfLines={1}>
+                {displayName}
+              </Text>
+            )}
             <View style={styles.barContainer}>
-              <View 
+              <View
                 style={[
-                  styles.bar, 
-                  { 
+                  styles.bar,
+                  {
                     width: barWidth,
                     backgroundColor: isNegative ? '#ef5350' : color,
                   }
-                ]} 
+                ]}
               />
-              <Text style={styles.barValue}>{item.value.toFixed(1)}</Text>
+              <Text style={[styles.barValue, { color: t.text || '#333' }]}>{item.value.toFixed(1)}</Text>
             </View>
           </View>
         );
@@ -92,9 +102,26 @@ export const Rankings = ({
   availableSeasons,
   onSeasonChange,
   onSeasonTypeChange,
+  darkMode = false,
+  theme = null,
+  onPlayerClick,
 }) => {
   const [exporting, setExporting] = useState(false);
   const chartsRef = useRef(null);
+
+  // Default theme if not provided
+  const t = theme || {
+    bg: darkMode ? '#121212' : '#f5f5f5',
+    bgCard: darkMode ? '#1e1e1e' : '#fff',
+    bgHeader: darkMode ? '#1a1a2e' : '#1a1a2e',
+    text: darkMode ? '#e0e0e0' : '#333',
+    textSecondary: darkMode ? '#aaa' : '#666',
+    textMuted: darkMode ? '#888' : '#999',
+    border: darkMode ? '#333' : '#ddd',
+    borderLight: darkMode ? '#2a2a2a' : '#f0f0f0',
+    accent: '#4caf50',
+    danger: '#ef5350',
+  };
 
   // Calculate GSAA for goalies
   const calculateGSAA = (goalie, leagueAvgSvPct) => {
@@ -368,8 +395,8 @@ export const Rankings = ({
 
   if (!players || players.length === 0) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.emptyText}>
+      <View style={[styles.container, { backgroundColor: t.bg }]}>
+        <Text style={[styles.emptyText, { color: t.textSecondary }]}>
           No player data available.{'\n'}
           Import data from the Import tab first.
         </Text>
@@ -378,9 +405,9 @@ export const Rankings = ({
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, { backgroundColor: t.bg }]}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>TRUEi Rankings</Text>
+        <Text style={[styles.title, { color: t.text }]}>TRUEi Rankings</Text>
         <TouchableOpacity 
           style={[styles.exportButton, exporting && styles.exportButtonDisabled]} 
           onPress={exportAllCharts}
@@ -392,94 +419,80 @@ export const Rankings = ({
         </TouchableOpacity>
       </View>
 
-      <View style={styles.toggleRow}>
-        <TouchableOpacity
-          style={[styles.toggleBtn, seasonType === 'regular' && styles.toggleBtnActive]}
-          onPress={() => onSeasonTypeChange && onSeasonTypeChange('regular')}
-        >
-          <Text style={[styles.toggleText, seasonType === 'regular' && styles.toggleTextActive]}>
-            Regular Season
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleBtn, seasonType === 'playoffs' && styles.toggleBtnActive]}
-          onPress={() => onSeasonTypeChange && onSeasonTypeChange('playoffs')}
-        >
-          <Text style={[styles.toggleText, seasonType === 'playoffs' && styles.toggleTextActive]}>
-            Playoffs
-          </Text>
-        </TouchableOpacity>
-      </View>
-      
-      {/* Season Selector */}
-      <View style={{ marginBottom: 16 }}>
-        <Text style={styles.filterLabel}>Season:</Text>
-        <View style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#ddd', maxHeight: 150 }}>
-          <ScrollView nestedScrollEnabled>
+      {/* Compact controls: season dropdown + segmented toggle on one row */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {Platform.OS === 'web' && (
+          <select
+            value={selectedSeason}
+            onChange={(e) => onSeasonChange && onSeasonChange(e.target.value)}
+            style={{
+              padding: '8px 12px',
+              fontSize: 13,
+              fontWeight: 600,
+              backgroundColor: t.bgCard,
+              color: t.text,
+              border: `1px solid ${t.border || '#ddd'}`,
+              borderRadius: 8,
+              cursor: 'pointer',
+              minWidth: 140,
+            }}
+          >
             {(() => {
-              // Generate all seasons for fallback
-              const generateAllSeasons = () => {
-                const seasons = [];
-                for (let year = 2016; year <= 2068; year++) {
-                  const shortYear = (year + 1).toString().slice(-2);
-                  seasons.push(`${year}-${shortYear}`);
-                }
-                return seasons;
-              };
-              
-              const seasons = generateAllSeasons();
-              const importedSet = new Set(availableSeasons || []);
-              
+              // Only show seasons that actually have imported data. Sort newest first.
+              const seasons = [...(availableSeasons || [])].sort((a, b) => b.localeCompare(a));
               return seasons.map(season => (
-                <TouchableOpacity
-                  key={season}
-                  style={{
-                    padding: 10,
-                    borderBottomWidth: 1,
-                    borderBottomColor: '#eee',
-                    backgroundColor: selectedSeason === season ? '#e3f2fd' : importedSet.has(season) ? '#f0f7ff' : '#fff',
-                  }}
-                  onPress={() => onSeasonChange && onSeasonChange(season)}
-                >
-                  <Text style={{
-                    fontSize: TYPE.body,
-                    fontWeight: selectedSeason === season ? '700' : importedSet.has(season) ? '600' : '400',
-                    color: selectedSeason === season ? '#1565c0' : importedSet.has(season) ? '#1976d2' : '#333',
-                  }}>
-                    {formatSeasonLabel(season)}{importedSet.has(season) ? ' *' : ''}
-                  </Text>
-                </TouchableOpacity>
+                <option key={season} value={season}>
+                  {formatSeasonLabel(season)}
+                </option>
               ));
             })()}
-          </ScrollView>
+          </select>
+        )}
+
+        <View style={{ flexDirection: 'row', backgroundColor: t.bgCard, borderRadius: 8, padding: 3, borderWidth: 1, borderColor: t.border || '#ddd' }}>
+          <TouchableOpacity
+            style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, backgroundColor: seasonType === 'regular' ? (t.accent || '#1565c0') : 'transparent' }}
+            onPress={() => onSeasonTypeChange && onSeasonTypeChange('regular')}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '600', color: seasonType === 'regular' ? '#fff' : t.textSecondary }}>Regular</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, backgroundColor: seasonType === 'playoffs' ? (t.accent || '#1565c0') : 'transparent' }}
+            onPress={() => onSeasonTypeChange && onSeasonTypeChange('playoffs')}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '600', color: seasonType === 'playoffs' ? '#fff' : t.textSecondary }}>Playoffs</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={{ marginTop: 6, fontSize: TYPE.bodySm, color: '#666' }}>Selected: {formatSeasonLabel(selectedSeason)}</Text>
       </View>
 
       {/* Skater Charts */}
       <View ref={chartsRef}>
-        <Text style={styles.sectionHeader}>Skater Rankings by TRUEi</Text>
+        <Text style={[styles.sectionHeader, { color: t.text, borderBottomColor: t.border }]}>Skater Rankings by TRUEi</Text>
         {allChartsData.map((chart, index) => (
           <BarChart
+            theme={t}
             key={`skater-${index}`}
             title={chart.title}
             data={chart.data}
             maxValue={globalMaxValue}
             color={chart.color}
+            onItemClick={onPlayerClick}
           />
         ))}
         
         {/* Goalie Charts */}
         {goalieChartsData.length > 0 && (
           <>
-            <Text style={styles.sectionHeader}>Goalie Rankings by GSAA (35+ GP)</Text>
+            <Text style={[styles.sectionHeader, { color: t.text, borderBottomColor: t.border }]}>Goalie Rankings by GSAA (35+ GP)</Text>
             {goalieChartsData.map((chart, index) => (
               <BarChart
                 key={`goalie-${index}`}
+                theme={t}
                 title={chart.title}
                 data={chart.data}
                 maxValue={Math.max(...goalieChartsData.flatMap(c => c.data.map(d => Math.abs(d.value))), 1)}
                 color={chart.color}
+                onItemClick={onPlayerClick}
               />
             ))}
           </>
@@ -488,10 +501,11 @@ export const Rankings = ({
         {/* Team Charts */}
         {teamChartsData.length > 0 && (
           <>
-            <Text style={styles.sectionHeader}>Team Rankings</Text>
+            <Text style={[styles.sectionHeader, { color: t.text, borderBottomColor: t.border }]}>Team Rankings</Text>
             {teamChartsData.map((chart, index) => (
               <BarChart
                 key={`team-${index}`}
+                theme={t}
                 title={chart.title}
                 data={chart.data}
                 maxValue={Math.max(...teamChartsData.flatMap(c => c.data.map(d => Math.abs(d.value))), 1)}
@@ -503,18 +517,18 @@ export const Rankings = ({
       </View>
 
       {/* Stats Summary */}
-      <View style={styles.summaryContainer}>
-        <Text style={styles.summaryTitle}>Summary Stats</Text>
-        <Text style={styles.summaryText}>
+      <View style={[styles.summaryContainer, { backgroundColor: t.bgCard }]}>
+        <Text style={[styles.summaryTitle, { color: t.text }]}>Summary Stats</Text>
+        <Text style={[styles.summaryText, { color: t.textSecondary }]}>
           Total Players: {rankedPlayers.length} | Goalies: {seasonGoalies.length}
         </Text>
-        <Text style={styles.summaryText}>
+        <Text style={[styles.summaryText, { color: t.textSecondary }]}>
           Average TRUEi: {rankedPlayers.length > 0 ? (rankedPlayers.reduce((sum, p) => sum + p.truei, 0) / rankedPlayers.length).toFixed(2) : 0}
         </Text>
-        <Text style={styles.summaryText}>
+        <Text style={[styles.summaryText, { color: t.textSecondary }]}>
           League Avg SV%: {(leagueAvgSvPct * 100).toFixed(1)}%
         </Text>
-        <Text style={styles.summaryText}>
+        <Text style={[styles.summaryText, { color: t.textSecondary }]}>
           Centers: {getPlayersByPosition('C').length} | 
           LW: {getPlayersByPosition('LW').length} | 
           RW: {getPlayersByPosition('RW').length} | 

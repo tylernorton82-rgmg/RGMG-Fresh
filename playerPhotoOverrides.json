@@ -1,0 +1,6 @@
+{
+  "_comment": "Manual photo overrides. Keys are player names (case-insensitive). Values are direct image URLs. These WIN over Wikipedia + NHL.com lookups. Leave value empty ('') to skip a player.",
+  "Andrew Cristall": "",
+  "Kim Nurmi": "",
+  "Niko-Petteri Rosendahl": ""
+}

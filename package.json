@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@vercel/kv": "^3.0.0",
+    "cheerio": "^1.2.0",
     "expo": "~54.0.0",
     "expo-status-bar": "~3.0.9",
     "html2canvas": "^1.4.1",
