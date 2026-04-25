@@ -114,17 +114,27 @@ export default function PlayerModal({
   // Goalies are stored separately in the app, so we need to group them on-the-fly here.
   const playerData = useMemo(() => {
     if (!currentName) return null;
-    const lowerName = currentName.toLowerCase().trim();
+    // Strip diacritics on BOTH sides of every comparison. Some draft data
+    // names carry diacritics ("Magnus Pääjärvi") while the sim's roster
+    // database stores the ASCII form ("Magnus Paajarvi"). Without
+    // normalization, clicking the lineage link would fail to find the
+    // player and incorrectly flag them as a comparable.
+    const stripDiacritics = (s) => String(s || '')
+      .toLowerCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    const lowerName = stripDiacritics(currentName);
 
     // 1. Exact skater match
-    const asSkater = groupedPlayers?.find(p => p.name.toLowerCase().trim() === lowerName);
+    const asSkater = groupedPlayers?.find(p => stripDiacritics(p.name) === lowerName);
     if (asSkater && asSkater.seasons && asSkater.seasons.length > 0) {
       return { ...asSkater, isGoalie: false };
     }
 
     // 2. Exact goalie match — group by name on-the-fly
     if (goalieDatabase && goalieDatabase.length > 0) {
-      const goalieSeasons = goalieDatabase.filter(g => (g.name || '').toLowerCase().trim() === lowerName);
+      const goalieSeasons = goalieDatabase.filter(g => stripDiacritics(g.name || '') === lowerName);
       if (goalieSeasons.length > 0) {
         return { name: goalieSeasons[0].name, seasons: goalieSeasons, isGoalie: true };
       }
@@ -135,7 +145,7 @@ export default function PlayerModal({
     // from URL shares where the shared name may be abbreviated.
     if (groupedPlayers && groupedPlayers.length > 0) {
       const fuzzy = groupedPlayers.find(p => {
-        const pName = (p.name || '').toLowerCase().trim();
+        const pName = stripDiacritics(p.name || '');
         if (!pName) return false;
         // Match if either name contains the other (either direction)
         return pName.includes(lowerName) || lowerName.includes(pName);
@@ -148,7 +158,7 @@ export default function PlayerModal({
     // 4. Fuzzy goalie match
     if (goalieDatabase && goalieDatabase.length > 0) {
       const candidates = goalieDatabase.filter(g => {
-        const gName = (g.name || '').toLowerCase().trim();
+        const gName = stripDiacritics(g.name || '');
         return gName && (gName.includes(lowerName) || lowerName.includes(gName));
       });
       if (candidates.length > 0) {
@@ -185,6 +195,13 @@ export default function PlayerModal({
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
 
+  // For DISPLAY: strip diacritics but preserve casing. Sim renders names
+  // in plain ASCII so "Magnus Pääjärvi" should show as "Magnus Paajarvi".
+  const displayName = (s) =>
+    String(s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
   const isDraftedByName = !!(draftLookup && currentName &&
     draftLookup[normalizeName(currentName)]);
 
@@ -216,7 +233,14 @@ export default function PlayerModal({
   const latestSeason = careerTruei[0] || null;
   const latestPlayoff = careerPlayoffTruei[0] || null;
 
-  const contract = rosterContracts?.[currentName] || null;
+  // Contract lookup — try the literal name first, then ASCII'd version
+  // for cases where draft data has diacritics but the roster API doesn't.
+  let contract = rosterContracts?.[currentName] || null;
+  if (!contract && rosterContracts && currentName) {
+    const target = normalizeName(currentName);
+    const matchKey = Object.keys(rosterContracts).find(k => normalizeName(k) === target);
+    if (matchKey) contract = rosterContracts[matchKey];
+  }
   const draftInfo = draftLookup?.[normalizeName(currentName)] || null;
 
   // A drafted player has ANY of: stats in game, a draft entry, or a roster
@@ -289,7 +313,7 @@ export default function PlayerModal({
                     maxWidth: 100,
                     textAlign: 'center',
                   }} numberOfLines={2}>
-                    Photo: {resolvedName}
+                    Photo: {displayName(resolvedName)}
                   </Text>
                 ) : null}
               </View>
