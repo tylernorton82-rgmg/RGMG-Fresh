@@ -376,6 +376,12 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
       result[team.slot] = {
         name: team.name,
         capHit: team.data.capHit,
+        // Note: do NOT Math.max-floor capMax here. For trade validation,
+        // a team's true cap ceiling is capHit + capSpace. If they're over
+        // (capSpace negative), the ceiling is BELOW their current hit and
+        // any incoming salary correctly fails r.fits. The Math.max guard
+        // belongs in display code (CapDashboard) where it prevents
+        // negative ratios from breaking visual bars.
         capMax: team.data.capHit + team.data.capSpace,
         contractCount: team.data.contractCount,
         retainedCount: team.data.retainedCount || 0,

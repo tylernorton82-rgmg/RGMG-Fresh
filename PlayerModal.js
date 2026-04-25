@@ -163,7 +163,21 @@ export default function PlayerModal({
   //   - the photo we resolved is a comp (walked up the chain — a regen)
   //   - OR the player isn't in the game (!playerData — comparable view),
   //     so the user can navigate back to the regen who sent them here
-  const showLineage = lineage.length > 1 && (isCompPhoto || !playerData);
+  // Show the lineage breadcrumb whenever there is a chain. Real NHL
+  // players with comparables (Marco Rossi → comp), regens walking up to
+  // their original generator, and comparable pages all benefit. Players
+  // not in the draft data (Group 1, sim-start veterans) won't have a
+  // chain in draftLookup so they naturally skip this.
+  const showLineage = lineage.length > 1;
+
+  // A "comparable" page is for historical real players who exist purely as
+  // style/regen targets — Wayne Gretzky, Pat Quinn, Brian Campbell. They
+  // are NOT in the sim (no draft entry) AND have no stats. Drafted players
+  // with no stats yet (rookies/prospects) are still real players in the
+  // sim and get the normal modal layout, never the COMPARABLE view.
+  const isDrafted = !!(draftLookup && currentName &&
+    draftLookup[currentName.toLowerCase().trim()]);
+  const isComparable = !playerData && !isDrafted;
 
   // Helper: identify regular vs playoff rows using app's `seasonType` field
   const isPlayoffSeason = (s) => {
@@ -293,7 +307,7 @@ export default function PlayerModal({
                     {wikiSummary}
                   </Text>
                 ) : null}
-                {!playerData ? (
+                {isComparable ? (
                   <View style={{
                     alignSelf: 'flex-start',
                     backgroundColor: accentColor + '22',
