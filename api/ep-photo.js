@@ -4,23 +4,25 @@
 // Endpoint: /api/ep-photo?name=Jonah+Neuenschwander
 //
 // Strategy:
-//   1. Hit EP's typeahead endpoint with the player name
-//   2. Parse JSON response, find best matching hockey player
+//   1. Fetch EP's public search page HTML for the name
+//   2. Parse HTML to extract the FIRST player profile link
+//      (pattern: /player/<id>/<slug>)
 //   3. Build the photo URL from the player ID
-//   4. Validate the photo actually exists (HEAD request)
+//   4. Validate the photo exists (HEAD request)
 //   5. Return { url, source: 'ep', playerId, matchedName }
 //
-// Caching:
-//   Server-side cache via Vercel response headers (1 day fresh, 7 days stale).
-//   Client-side cache lives in PlayerPhoto.js (localStorage).
+// Why HTML scrape instead of typeahead JSON?
+//   EP's typeahead endpoint either doesn't exist publicly or requires
+//   browser cookies. The /search?q=... HTML page works without auth and
+//   has a stable layout — player profile links match a clear regex.
 //
-// Failure modes:
-//   - Search returns no results -> 200 { url: null }
-//   - Search hits an athlete in another sport -> filter to hockey only
-//   - EP changes their HTML/JSON shape -> 502 with descriptive error;
-//     PlayerPhoto.js negative-caches and falls back to chain walk
+// Caching: 1 day fresh, 7 days stale. Negative results cached 1 hour.
 
 const NAME_RE = /^[\p{L}\p{M}\s'.-]{1,80}$/u;
+
+// Match a player profile link in EP's search page HTML.
+// Example: /player/709625/jonah-neuenschwander
+const PLAYER_LINK_RE = /\/player\/(\d+)\/([a-z0-9-]+)/gi;
 
 export default async function handler(req, res) {
   const name = (req.query.name || '').trim();
@@ -30,80 +32,82 @@ export default async function handler(req, res) {
   }
 
   try {
-    // EliteProspects' public typeahead endpoint. Returns JSON with players,
-    // teams, leagues. We filter to "player" type entries.
-    const searchUrl = `https://www.eliteprospects.com/typeaheadsearch?q=${encodeURIComponent(name)}`;
+    const searchUrl = `https://www.eliteprospects.com/search?q=${encodeURIComponent(name)}`;
     const searchRes = await fetch(searchUrl, {
       headers: {
-        'Accept': 'application/json',
-        // Some EP endpoints require a real-looking UA
-        'User-Agent': 'Mozilla/5.0 (compatible; RGMG-Analytics/1.0)',
+        // Pretend to be a normal browser — EP serves the same HTML to
+        // anyone but some CDNs reject obvious bot user agents.
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
       },
+      // Follow redirects (EP sometimes 302s search hits straight to a profile)
+      redirect: 'follow',
     });
 
     if (!searchRes.ok) {
-      return res.status(502).json({ error: `EP search returned ${searchRes.status}` });
+      return res.status(502).json({
+        error: `EP search returned ${searchRes.status}`,
+        finalUrl: searchRes.url,
+      });
     }
 
-    let searchData;
-    try {
-      searchData = await searchRes.json();
-    } catch (e) {
-      // EP might return HTML if endpoint changed. Try the public search URL
-      // as fallback and parse the HTML for player links.
-      return res.status(502).json({ error: 'EP typeahead returned non-JSON' });
+    const html = await searchRes.text();
+    const finalUrl = searchRes.url || searchUrl;
+
+    // Two paths: search redirected straight to a profile (single match),
+    // or search returned a results page with multiple links.
+    let playerId = null;
+    let slug = null;
+
+    // Path 1: redirect to /player/<id>/<slug>
+    const directMatch = finalUrl.match(/\/player\/(\d+)\/([a-z0-9-]+)/i);
+    if (directMatch) {
+      playerId = directMatch[1];
+      slug = directMatch[2];
+    } else {
+      // Path 2: scan HTML for the FIRST player profile link
+      // Reset regex state since /g is sticky
+      PLAYER_LINK_RE.lastIndex = 0;
+      const m = PLAYER_LINK_RE.exec(html);
+      if (m) {
+        playerId = m[1];
+        slug = m[2];
+      }
     }
 
-    // Response shape (as of writing): { players: [...], teams: [...], ... }
-    // Each player: { id, fullName, position, dob, country, ... }
-    const players = Array.isArray(searchData?.players) ? searchData.players :
-                    Array.isArray(searchData) ? searchData.filter(e => e.type === 'player') :
-                    [];
-
-    if (players.length === 0) {
-      // Cache "no result" briefly so we don't hammer EP for the same name
+    if (!playerId) {
       res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
-      return res.status(200).json({ url: null, reason: 'no-results' });
-    }
-
-    // Pick best match: exact name match (case-insensitive) wins. Otherwise
-    // first result.
-    const lowerName = name.toLowerCase();
-    const exact = players.find(p =>
-      (p.fullName || p.name || '').toLowerCase() === lowerName
-    );
-    const player = exact || players[0];
-
-    if (!player || !player.id) {
-      res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
-      return res.status(200).json({ url: null, reason: 'no-id' });
+      return res.status(200).json({ url: null, reason: 'no-player-link-found' });
     }
 
     // Build photo URL. EP serves player photos at this CDN path:
     //   https://files.eliteprospects.com/layout/players/<id>.jpg
-    // Some prospects don't have photos uploaded, so we HEAD-check before
-    // returning the URL.
-    const photoUrl = `https://files.eliteprospects.com/layout/players/${player.id}.jpg`;
+    const photoUrl = `https://files.eliteprospects.com/layout/players/${playerId}.jpg`;
 
+    // HEAD-check before returning so we don't render a broken image
     try {
-      const headRes = await fetch(photoUrl, { method: 'HEAD' });
+      const headRes = await fetch(photoUrl, {
+        method: 'HEAD',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RGMG-Analytics/1.0)' },
+      });
       if (!headRes.ok) {
-        // Photo doesn't exist (404). Don't return a URL that would render broken.
         res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
-        return res.status(200).json({ url: null, playerId: player.id, reason: 'no-photo' });
+        return res.status(200).json({ url: null, playerId, reason: 'no-photo' });
       }
     } catch (e) {
-      // Network blip — return the URL anyway and let the client decide
+      // Network blip — return URL anyway
     }
 
     res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
     return res.status(200).json({
       url: photoUrl,
       source: 'ep',
-      playerId: player.id,
-      matchedName: player.fullName || player.name || name,
+      playerId,
+      slug,
+      matchedName: name,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message, stack: err.stack });
   }
 }
