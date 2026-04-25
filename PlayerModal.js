@@ -172,12 +172,11 @@ export default function PlayerModal({
 
   // A "comparable" page is for historical real players who exist purely as
   // style/regen targets — Wayne Gretzky, Pat Quinn, Brian Campbell. They
-  // are NOT in the sim (no draft entry) AND have no stats. Drafted players
-  // with no stats yet (rookies/prospects) are still real players in the
-  // sim and get the normal modal layout, never the COMPARABLE view.
-  const isDrafted = !!(draftLookup && currentName &&
+  // are NOT in the sim. We recompute isComparable below once `contract` is
+  // available, so a player who shows up in their team's roster is never
+  // flagged as a comparable even if their name didn't match draft data.
+  const isDraftedByName = !!(draftLookup && currentName &&
     draftLookup[currentName.toLowerCase().trim()]);
-  const isComparable = !playerData && !isDrafted;
 
   // Helper: identify regular vs playoff rows using app's `seasonType` field
   const isPlayoffSeason = (s) => {
@@ -209,6 +208,10 @@ export default function PlayerModal({
 
   const contract = rosterContracts?.[currentName] || null;
   const draftInfo = draftLookup?.[currentName?.toLowerCase().trim()] || null;
+
+  // A drafted player has ANY of: stats in game, a draft entry, or a roster
+  // contract. If none of these, they're a true historical comparable.
+  const isComparable = !playerData && !isDraftedByName && !contract;
 
   if (!currentName) return null;
 
