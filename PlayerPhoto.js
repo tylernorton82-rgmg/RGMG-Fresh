@@ -17,6 +17,46 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Image, Platform } from 'react-native';
 import photoOverrides from './playerPhotoOverrides.json';
+import DRAFT_DATA from './assets/data/draftData.json';
+
+// ============================================================================
+// FALLBACK DRAFT LOOKUP
+// ============================================================================
+// Built from the bundled draftData.json. Used when callers don't pass a
+// draftLookup prop, OR when their lookup is empty (e.g., due to a hot-reload
+// quirk or initial render before App.js has finished its useMemo). Either
+// way, the regen chain still resolves correctly. Diacritics are stripped so
+// "Magnus Pääjärvi" and "Magnus Paajarvi" map to the same key.
+//
+// The name normalizer is declared here too (matching the one further below
+// used in resolveRegenChain) so this top-level IIFE can use it without
+// hoisting issues.
+const _normalizeForLookup = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const FALLBACK_DRAFT_LOOKUP = (() => {
+  const lookup = {};
+  if (Array.isArray(DRAFT_DATA)) {
+    for (const d of DRAFT_DATA) {
+      if (!d || !d.name) continue;
+      const k = _normalizeForLookup(d.name);
+      if (!lookup[k]) {
+        lookup[k] = {
+          draftYear: d.draftYear,
+          round: d.round,
+          overall: d.overall,
+          pregen: d.pregen,
+          team: d.team || null,
+        };
+      }
+    }
+  }
+  return lookup;
+})();
 
 // ============================================================================
 // MANUAL PHOTO OVERRIDES
@@ -64,17 +104,33 @@ function getPhotoOverride(name) {
  *   - Circular references (safety: bails out with visited set)
  *   - Empty/dash/whitespace pregen values (treated as no pregen)
  */
+// Strip diacritics + lowercase + trim. Sim renders names in ASCII so a
+// key like "Magnus Pääjärvi" must match a roster name "Magnus Paajarvi"
+// when walking the chain.
+const normalizeName = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
 export function resolveRegenChain(name, draftLookup) {
   if (!name) return [];
+  // Fallback to bundled draft data if no lookup was passed (or it's empty).
+  // Belt-and-suspenders: even if a caller forgets to pass draftLookup,
+  // lineage still resolves correctly using the same JSON App.js builds from.
+  const lookup = (draftLookup && Object.keys(draftLookup).length > 0)
+    ? draftLookup
+    : FALLBACK_DRAFT_LOOKUP;
   const chain = [];
   const visited = new Set();
   let current = String(name).trim();
 
-  while (current && !visited.has(current.toLowerCase())) {
-    visited.add(current.toLowerCase());
+  while (current && !visited.has(normalizeName(current))) {
+    visited.add(normalizeName(current));
     chain.push(current);
 
-    const entry = draftLookup?.[current.toLowerCase()];
+    const entry = lookup?.[normalizeName(current)];
     const pregen = entry?.pregen;
 
     // Root reached: no entry, or entry has no pregen value
