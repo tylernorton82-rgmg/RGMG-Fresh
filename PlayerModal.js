@@ -168,7 +168,7 @@ export default function PlayerModal({
   // their original generator, and comparable pages all benefit. Players
   // not in the draft data (Group 1, sim-start veterans) won't have a
   // chain in draftLookup so they naturally skip this.
-  const showLineage = lineage.length > 0;
+  const showLineage = lineage.length > 1;
 
   // A "comparable" page is for historical real players who exist purely as
   // style/regen targets — Wayne Gretzky, Pat Quinn, Brian Campbell. They
@@ -482,9 +482,6 @@ export default function PlayerModal({
               <View style={{ marginTop: 8, padding: 12, backgroundColor: bgCard, borderRadius: 8, borderWidth: 1, borderColor }}>
                 <Text style={{ fontSize: 11, color: textSecondary, fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Regen Lineage
-                </Text>
-                <Text style={{ fontSize: 9, color: 'red', marginBottom: 6 }}>
-                  DEBUG: lineage.length={lineage.length} | items=[{lineage.join(', ')}]
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
                   {lineage.map((linkName, idx) => (
