@@ -210,10 +210,10 @@ export async function resolveBestHockeyMatch(name, draftLookup, hasStatsInGame =
 
   // Try to find an "own photo" — i.e. a photo of THIS player specifically.
   // Check override JSON first (manual real-player entries), then Wikipedia,
-  // then NHL.com, then EliteProspects. EP catches drafted prospects who
-  // don't have Wikipedia or NHL.com pages yet (e.g. recent draftees, junior
-  // players). This dramatically reduces the number of real prospects that
-  // fall through to the regen-chain walk.
+  // then NHL.com. EP scraping was attempted but EP returns 403 to Vercel's
+  // serverless IPs (Cloudflare bot detection), so we skip it. To add a
+  // real photo for a prospect that Wikipedia/NHL.com don't have, paste the
+  // photo URL into playerPhotoOverrides.json keyed by player name.
   const tryOwn = async (n) => {
     const override = getPhotoOverride(n);
     if (override) return { url: override, description: '', resolvedName: n, isComp: false, source: 'override' };
@@ -221,8 +221,6 @@ export async function resolveBestHockeyMatch(name, draftLookup, hasStatsInGame =
     if (wiki && wiki.url) return { ...wiki, resolvedName: n, isComp: false, source: 'wikipedia' };
     const nhl = await fetchNHLHeadshot(n);
     if (nhl && nhl.url) return { url: nhl.url, description: '', resolvedName: n, isComp: false, source: 'nhl' };
-    const ep = await fetchEPHeadshot(n);
-    if (ep && ep.url) return { url: ep.url, description: '', resolvedName: n, isComp: false, source: 'ep' };
     return null;
   };
 
@@ -553,53 +551,6 @@ export async function fetchNHLHeadshot(name) {
   });
 
   nhlInflight[cacheKey] = promise;
-  return promise;
-}
-
-// ============================================================================
-// ELITEPROSPECTS HEADSHOT (with localStorage cache, via Vercel proxy)
-// ============================================================================
-// EP doesn't allow direct browser fetches (CORS), so we route through the
-// /api/ep-photo endpoint which proxies + parses + HEAD-validates the photo
-// URL. Same caching strategy as Wikipedia/NHL: 30-day positive, 7-day
-// negative, dedupe inflight requests.
-
-const EP_CACHE_PREFIX = 'rgmg_ep_photo_v1_';
-const epInflight = {};
-
-export async function fetchEPHeadshot(name) {
-  if (!name) return null;
-  const cacheKey = EP_CACHE_PREFIX + name.toLowerCase();
-  const cached = readCache(cacheKey);
-  if (cached) {
-    return cached.url ? { url: cached.url, source: 'ep' } : null;
-  }
-  if (epInflight[cacheKey]) return epInflight[cacheKey];
-
-  const promise = (async () => {
-    try {
-      const res = await fetch(`/api/ep-photo?name=${encodeURIComponent(name)}`);
-      if (!res.ok) {
-        writeCache(cacheKey, { url: null });
-        return null;
-      }
-      const data = await res.json();
-      if (!data || !data.url) {
-        writeCache(cacheKey, { url: null });
-        return null;
-      }
-      const result = { url: data.url, source: 'ep' };
-      writeCache(cacheKey, result);
-      return result;
-    } catch {
-      writeCache(cacheKey, { url: null });
-      return null;
-    }
-  })().finally(() => {
-    delete epInflight[cacheKey];
-  });
-
-  epInflight[cacheKey] = promise;
   return promise;
 }
 
