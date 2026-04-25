@@ -168,15 +168,25 @@ export default function PlayerModal({
   // their original generator, and comparable pages all benefit. Players
   // not in the draft data (Group 1, sim-start veterans) won't have a
   // chain in draftLookup so they naturally skip this.
-  const showLineage = lineage.length > 1;
+  const showLineage = lineage.length > 0;
 
   // A "comparable" page is for historical real players who exist purely as
   // style/regen targets — Wayne Gretzky, Pat Quinn, Brian Campbell. They
   // are NOT in the sim. We recompute isComparable below once `contract` is
   // available, so a player who shows up in their team's roster is never
   // flagged as a comparable even if their name didn't match draft data.
+  // Same diacritic-aware normalization App.js uses to build draftLookup.
+  // Without this, "Edvin Tomth" → pregen "Magnus Pääjärvi" can't be looked
+  // up because the sim renders the roster name as "Magnus Paajarvi".
+  const normalizeName = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
   const isDraftedByName = !!(draftLookup && currentName &&
-    draftLookup[currentName.toLowerCase().trim()]);
+    draftLookup[normalizeName(currentName)]);
 
   // Helper: identify regular vs playoff rows using app's `seasonType` field
   const isPlayoffSeason = (s) => {
@@ -207,7 +217,7 @@ export default function PlayerModal({
   const latestPlayoff = careerPlayoffTruei[0] || null;
 
   const contract = rosterContracts?.[currentName] || null;
-  const draftInfo = draftLookup?.[currentName?.toLowerCase().trim()] || null;
+  const draftInfo = draftLookup?.[normalizeName(currentName)] || null;
 
   // A drafted player has ANY of: stats in game, a draft entry, or a roster
   // contract. If none of these, they're a true historical comparable.
@@ -472,6 +482,9 @@ export default function PlayerModal({
               <View style={{ marginTop: 8, padding: 12, backgroundColor: bgCard, borderRadius: 8, borderWidth: 1, borderColor }}>
                 <Text style={{ fontSize: 11, color: textSecondary, fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Regen Lineage
+                </Text>
+                <Text style={{ fontSize: 9, color: 'red', marginBottom: 6 }}>
+                  DEBUG: lineage.length={lineage.length} | items=[{lineage.join(', ')}]
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
                   {lineage.map((linkName, idx) => (
