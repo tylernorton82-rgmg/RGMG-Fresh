@@ -116,12 +116,19 @@ const normalizeName = (s) =>
 
 export function resolveRegenChain(name, draftLookup) {
   if (!name) return [];
-  // Fallback to bundled draft data if no lookup was passed (or it's empty).
-  // Belt-and-suspenders: even if a caller forgets to pass draftLookup,
-  // lineage still resolves correctly using the same JSON App.js builds from.
-  const lookup = (draftLookup && Object.keys(draftLookup).length > 0)
-    ? draftLookup
-    : FALLBACK_DRAFT_LOOKUP;
+  // Try the prop lookup first per-entry; fall back to bundled JSON if the
+  // prop's missing or doesn't have this player. Belt-and-suspenders so a
+  // missing/incomplete draftLookup never breaks the chain.
+  const lookups = [];
+  if (draftLookup && Object.keys(draftLookup).length > 0) lookups.push(draftLookup);
+  lookups.push(FALLBACK_DRAFT_LOOKUP);
+  const findEntry = (key) => {
+    for (const L of lookups) {
+      const v = L[key];
+      if (v) return v;
+    }
+    return null;
+  };
   const chain = [];
   const visited = new Set();
   let current = String(name).trim();
@@ -130,7 +137,7 @@ export function resolveRegenChain(name, draftLookup) {
     visited.add(normalizeName(current));
     chain.push(current);
 
-    const entry = lookup?.[normalizeName(current)];
+    const entry = findEntry(normalizeName(current));
     const pregen = entry?.pregen;
 
     // Root reached: no entry, or entry has no pregen value
