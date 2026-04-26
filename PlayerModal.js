@@ -32,6 +32,78 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal, Platform } from 'react-native';
 import PlayerPhoto, { resolveRegenChain, fetchWikipediaPhoto } from './PlayerPhoto';
 
+// Career sparkline — shows the player's per-season output as a tiny bar chart.
+// For skaters the bar height is points (G+A). For goalies we use SV% mapped
+// onto a 0-100 range (multiply by 100). No SVG dependency — pure View bars.
+//
+// Props:
+//   seasons: array of season rows, ordered most-recent FIRST (we reverse here)
+//   isGoalie: bool — picks the metric (points vs sv%)
+//   accentColor: highlight color for the most recent season's bar
+//   barColor: base color for older seasons
+//   textSecondary: muted text for axis labels
+function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSecondary }) {
+  // Reverse so oldest is on the left, newest on the right (career arc reads L-R)
+  const ordered = useMemo(() => (seasons || []).slice().reverse(), [seasons]);
+  if (ordered.length < 2) return null; // a single bar isn't a "career arc"
+
+  const getValue = (s) => {
+    if (isGoalie) {
+      // SV% comes through as a decimal like 0.915 — scale to 91.5
+      const sv = parseFloat(s.sv || s.svPct || s.savePct || 0) || 0;
+      return sv > 1 ? sv : sv * 100;
+    }
+    return (parseInt(s.g, 10) || 0) + (parseInt(s.a, 10) || 0);
+  };
+
+  const values = ordered.map(getValue);
+  const max = Math.max(...values, 1);
+  const min = isGoalie ? Math.min(...values, max) : 0;
+  const range = Math.max(max - min, 1);
+
+  const peakIdx = values.indexOf(Math.max(...values));
+  const latestIdx = values.length - 1;
+
+  return (
+    <View style={{ marginBottom: 10, paddingHorizontal: 4 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Text style={{ fontSize: 11, color: textSecondary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Career Arc · {isGoalie ? 'SV%' : 'Points'}
+        </Text>
+        <Text style={{ fontSize: 10, color: textSecondary }}>
+          {ordered.length} {ordered.length === 1 ? 'season' : 'seasons'}
+        </Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 48, gap: 2 }}>
+        {ordered.map((s, i) => {
+          const v = values[i];
+          const pct = (v - min) / range;
+          const height = Math.max(4, pct * 44);
+          const isLatest = i === latestIdx;
+          const isPeak = i === peakIdx && !isLatest;
+          const color = isLatest ? accentColor : isPeak ? accentColor + 'aa' : barColor;
+          return (
+            <View key={`${s.season}-${i}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end' }}>
+              <View style={{ width: '100%', height, backgroundColor: color, borderRadius: 2, minHeight: 4 }} />
+            </View>
+          );
+        })}
+      </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 3 }}>
+        <Text style={{ fontSize: 9, color: textSecondary }}>
+          {formatSeasonLabel(ordered[0]?.season)}
+        </Text>
+        <Text style={{ fontSize: 9, color: textSecondary }}>
+          peak {isGoalie ? values[peakIdx].toFixed(1) : values[peakIdx]}
+        </Text>
+        <Text style={{ fontSize: 9, color: textSecondary }}>
+          {formatSeasonLabel(ordered[ordered.length - 1]?.season)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 // Season label helper — "2024-25" stays as-is
 const formatSeasonLabel = (season) => {
   if (!season) return '—';
@@ -418,6 +490,17 @@ export default function PlayerModal({
                   <Row label="Retentions" value={`${contract.retention_count} prior`} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
                 ) : null}
               </Section>
+            ) : null}
+
+            {/* Career arc sparkline — only shows if player has 2+ seasons */}
+            {careerTruei.length >= 2 ? (
+              <CareerSparkline
+                seasons={careerTruei}
+                isGoalie={!!playerData?.isGoalie}
+                accentColor={accentColor}
+                barColor={borderColor}
+                textSecondary={textSecondary}
+              />
             ) : null}
 
             {/* Current season stats */}
