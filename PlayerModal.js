@@ -88,7 +88,10 @@ function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSeconda
           const height = Math.max(4, pct * 44);
           const isSelected = i === selectedIdx;
           const isPeak = i === peakIdx && !isSelected;
-          const color = isSelected ? accentColor : isPeak ? accentColor + 'aa' : barColor;
+          // Selected/latest gets the accent color. Peak gets a distinct
+          // light blue so it doesn't blend with the accent (which is often
+          // green). Everything else falls back to the muted bar color.
+          const color = isSelected ? accentColor : isPeak ? '#7ab8e6' : barColor;
           return (
             <TouchableOpacity
               key={`${s.season}-${i}`}
