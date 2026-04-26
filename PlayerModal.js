@@ -114,6 +114,52 @@ const formatSeasonLabel = (season) => {
   return `${start}-${String(start + 1).slice(-2)}`;
 };
 
+// Fetch the rgmg.ca player record (for trade history + awards). Cached in
+// localStorage for 2 hours so reopening the modal doesn't refetch. Returns
+// null on any error / not-found so callers can render gracefully.
+const RGMG_CACHE_PREFIX = 'rgmg_player_v1_';
+const RGMG_CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const rgmgInflight = {};
+
+async function fetchRGMGPlayer(name) {
+  if (!name) return null;
+  const cacheKey = RGMG_CACHE_PREFIX + name.toLowerCase();
+  // Try cache first
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(cacheKey) : null;
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached && cached.savedAt && (Date.now() - cached.savedAt) < RGMG_CACHE_TTL_MS) {
+        return cached.player;
+      }
+    }
+  } catch {}
+
+  if (rgmgInflight[cacheKey]) return rgmgInflight[cacheKey];
+
+  const promise = (async () => {
+    try {
+      const res = await fetch(`/api/rgmg-player?name=${encodeURIComponent(name)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const player = data?.found ? data.player : null;
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(cacheKey, JSON.stringify({ player, savedAt: Date.now() }));
+        }
+      } catch {}
+      return player;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    delete rgmgInflight[cacheKey];
+  });
+
+  rgmgInflight[cacheKey] = promise;
+  return promise;
+}
+
 export default function PlayerModal({
   playerName,
   onClose,
@@ -138,6 +184,8 @@ export default function PlayerModal({
   const [wikiSummary, setWikiSummary] = useState(null);
   // Career view mode: 'single' (most recent), 'last3' (last 3 summed), 'all' (summed)
   const [careerMode, setCareerMode] = useState('single');
+  // Trades pulled from the rgmg.ca player API. null = not loaded, [] = no trades
+  const [rgmgTrades, setRgmgTrades] = useState(null);
 
   // When playerName prop changes (modal opened on a new player), reset stack.
   useEffect(() => {
@@ -181,6 +229,19 @@ export default function PlayerModal({
     });
     return () => { cancelled = true; };
   }, [resolvedName]);
+
+  // Fetch trade history from rgmg.ca for the current player. Resets between
+  // player navigations so we don't show stale data from the previous player.
+  useEffect(() => {
+    if (!currentName) { setRgmgTrades(null); return; }
+    let cancelled = false;
+    setRgmgTrades(null);
+    fetchRGMGPlayer(currentName).then(player => {
+      if (cancelled) return;
+      setRgmgTrades(Array.isArray(player?.trades) ? player.trades : []);
+    });
+    return () => { cancelled = true; };
+  }, [currentName]);
 
   // Find player data — check skater groupedPlayers first, fall back to goalieDatabase.
   // Goalies are stored separately in the app, so we need to group them on-the-fly here.
@@ -501,6 +562,57 @@ export default function PlayerModal({
                 barColor={borderColor}
                 textSecondary={textSecondary}
               />
+            ) : null}
+
+            {/* Trade history pulled from rgmg.ca. Hidden if no trades. */}
+            {Array.isArray(rgmgTrades) && rgmgTrades.length > 0 ? (
+              <View style={{ marginBottom: 10, padding: 12, backgroundColor: bgCard, borderRadius: 8, borderWidth: 1, borderColor }}>
+                <Text style={{ fontSize: 11, color: textSecondary, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Trade History · {rgmgTrades.length}
+                </Text>
+                {rgmgTrades.map((t, idx) => {
+                  const team1 = t.team_1 || 'Team 1';
+                  const team2 = t.team_2 || 'Team 2';
+                  const players1 = String(t.players_1 || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const players2 = String(t.players_2 || '').split(',').map(s => s.trim()).filter(Boolean);
+                  // Highlight current player in their list
+                  const renderPlayerList = (names) => names.map((n, i) => {
+                    const isCurrent = n.toLowerCase() === String(currentName || '').toLowerCase();
+                    return (
+                      <Text key={`${n}-${i}`} style={{ fontSize: 12, color: isCurrent ? accentColor : textColor, fontWeight: isCurrent ? '700' : '400' }}>
+                        {n}{i < names.length - 1 ? ', ' : ''}
+                      </Text>
+                    );
+                  });
+                  return (
+                    <View key={`trade-${idx}`} style={{
+                      paddingVertical: 8,
+                      borderTopWidth: idx === 0 ? 0 : 1,
+                      borderTopColor: borderColor,
+                    }}>
+                      <Text style={{ fontSize: 10, color: textSecondary, marginBottom: 4 }}>
+                        {t.season || ''}
+                      </Text>
+                      <View style={{ marginBottom: 4 }}>
+                        <Text style={{ fontSize: 11, color: textSecondary, fontWeight: '600' }}>
+                          {team1} → {team2}
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 }}>
+                          {renderPlayerList(players1)}
+                        </View>
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 11, color: textSecondary, fontWeight: '600' }}>
+                          {team2} → {team1}
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 }}>
+                          {renderPlayerList(players2)}
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
             ) : null}
 
             {/* Current season stats */}
