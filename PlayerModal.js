@@ -36,20 +36,24 @@ import PlayerPhoto, { resolveRegenChain, fetchWikipediaPhoto } from './PlayerPho
 // For skaters the bar height is points (G+A). For goalies we use SV% mapped
 // onto a 0-100 range (multiply by 100). No SVG dependency — pure View bars.
 //
+// Tapping a bar fires `onSelectSeason(season)` so the parent can switch the
+// stat block below to that specific year. The currently-selected bar gets
+// the accent color; otherwise the latest season is highlighted by default.
+//
 // Props:
 //   seasons: array of season rows, ordered most-recent FIRST (we reverse here)
 //   isGoalie: bool — picks the metric (points vs sv%)
-//   accentColor: highlight color for the most recent season's bar
-//   barColor: base color for older seasons
+//   accentColor: highlight color for the selected/latest bar
+//   barColor: base color for non-highlighted seasons
 //   textSecondary: muted text for axis labels
-function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSecondary }) {
-  // Reverse so oldest is on the left, newest on the right (career arc reads L-R)
+//   selectedSeason: season string (e.g. "2024-25") that's currently picked
+//   onSelectSeason: (seasonStr) => void
+function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSecondary, selectedSeason, onSelectSeason }) {
   const ordered = useMemo(() => (seasons || []).slice().reverse(), [seasons]);
-  if (ordered.length < 2) return null; // a single bar isn't a "career arc"
+  if (ordered.length < 2) return null;
 
   const getValue = (s) => {
     if (isGoalie) {
-      // SV% comes through as a decimal like 0.915 — scale to 91.5
       const sv = parseFloat(s.sv || s.svPct || s.savePct || 0) || 0;
       return sv > 1 ? sv : sv * 100;
     }
@@ -60,9 +64,12 @@ function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSeconda
   const max = Math.max(...values, 1);
   const min = isGoalie ? Math.min(...values, max) : 0;
   const range = Math.max(max - min, 1);
-
   const peakIdx = values.indexOf(Math.max(...values));
   const latestIdx = values.length - 1;
+  // If a specific season is selected, use that. Otherwise default to latest.
+  const selectedIdx = selectedSeason
+    ? ordered.findIndex(s => s.season === selectedSeason)
+    : latestIdx;
 
   return (
     <View style={{ marginBottom: 10, paddingHorizontal: 4 }}>
@@ -71,7 +78,7 @@ function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSeconda
           Career Arc · {isGoalie ? 'SV%' : 'Points'}
         </Text>
         <Text style={{ fontSize: 10, color: textSecondary }}>
-          {ordered.length} {ordered.length === 1 ? 'season' : 'seasons'}
+          tap a bar
         </Text>
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 48, gap: 2 }}>
@@ -79,13 +86,18 @@ function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSeconda
           const v = values[i];
           const pct = (v - min) / range;
           const height = Math.max(4, pct * 44);
-          const isLatest = i === latestIdx;
-          const isPeak = i === peakIdx && !isLatest;
-          const color = isLatest ? accentColor : isPeak ? accentColor + 'aa' : barColor;
+          const isSelected = i === selectedIdx;
+          const isPeak = i === peakIdx && !isSelected;
+          const color = isSelected ? accentColor : isPeak ? accentColor + 'aa' : barColor;
           return (
-            <View key={`${s.season}-${i}`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end' }}>
+            <TouchableOpacity
+              key={`${s.season}-${i}`}
+              onPress={() => onSelectSeason && onSelectSeason(s.season)}
+              activeOpacity={0.6}
+              style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: 48 }}
+            >
               <View style={{ width: '100%', height, backgroundColor: color, borderRadius: 2, minHeight: 4 }} />
-            </View>
+            </TouchableOpacity>
           );
         })}
       </View>
@@ -93,8 +105,8 @@ function CareerSparkline({ seasons, isGoalie, accentColor, barColor, textSeconda
         <Text style={{ fontSize: 9, color: textSecondary }}>
           {formatSeasonLabel(ordered[0]?.season)}
         </Text>
-        <Text style={{ fontSize: 9, color: textSecondary }}>
-          peak {isGoalie ? values[peakIdx].toFixed(1) : values[peakIdx]}
+        <Text style={{ fontSize: 9, color: accentColor, fontWeight: '600' }}>
+          {formatSeasonLabel(ordered[selectedIdx]?.season)} · {isGoalie ? values[selectedIdx].toFixed(1) : values[selectedIdx]}
         </Text>
         <Text style={{ fontSize: 9, color: textSecondary }}>
           {formatSeasonLabel(ordered[ordered.length - 1]?.season)}
@@ -182,10 +194,17 @@ export default function PlayerModal({
   // Navigation stack: array of names. Current player = last item.
   const [stack, setStack] = useState([]);
   const [wikiSummary, setWikiSummary] = useState(null);
-  // Career view mode: 'single' (most recent), 'last3' (last 3 summed), 'all' (summed)
+  // Career view mode: 'single' (most recent), 'last3' (last 3 summed), 'all'
+  // (summed), or 'specific' (a particular season picked from the sparkline).
   const [careerMode, setCareerMode] = useState('single');
+  // When mode is 'specific', this holds the season string (e.g. "2024-25")
+  const [selectedSeason, setSelectedSeason] = useState(null);
   // Trades pulled from the rgmg.ca player API. null = not loaded, [] = no trades
   const [rgmgTrades, setRgmgTrades] = useState(null);
+  // Full rgmg.ca player record. Used to fill in attribute gaps when the sim
+  // API doesn't have a record yet (e.g. brand-new draftees show in
+  // draftData.json + on rgmg.ca but haven't been added to /api/players).
+  const [rgmgPlayer, setRgmgPlayer] = useState(null);
 
   // When playerName prop changes (modal opened on a new player), reset stack.
   useEffect(() => {
@@ -233,11 +252,15 @@ export default function PlayerModal({
   // Fetch trade history from rgmg.ca for the current player. Resets between
   // player navigations so we don't show stale data from the previous player.
   useEffect(() => {
-    if (!currentName) { setRgmgTrades(null); return; }
+    if (!currentName) { setRgmgTrades(null); setRgmgPlayer(null); return; }
     let cancelled = false;
     setRgmgTrades(null);
+    setRgmgPlayer(null);
+    setCareerMode('single');
+    setSelectedSeason(null);
     fetchRGMGPlayer(currentName).then(player => {
       if (cancelled) return;
+      setRgmgPlayer(player || null);
       setRgmgTrades(Array.isArray(player?.trades) ? player.trades : []);
     });
     return () => { cancelled = true; };
@@ -496,18 +519,26 @@ export default function PlayerModal({
               </View>
             </View>
 
-            {/* Key info grid — age, handedness, type, draft. Skipped for
-                comparables (no playerData) since nothing here applies. */}
-            {playerData ? (
+            {/* Key info grid — age, handedness, type, draft. Pulled from sim
+                playerData when available, falls back to rgmg.ca's record so
+                brand-new draftees (not yet in /api/players) still show their
+                attributes. Hidden only when there's truly nothing to show. */}
+            {(() => {
+              const age = contract?.age || latestSeason?.age || rgmgPlayer?.age;
+              const handedness = contract?.handedness || latestSeason?.handedness || rgmgPlayer?.handedness;
+              const type = contract?.type || rgmgPlayer?.type;
+              const hasAnything = age || handedness || type || draftInfo?.draftYear || playerData;
+              if (!hasAnything) return null;
+              return (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16, gap: 8 }}>
-              {contract?.age || latestSeason?.age ? (
-                <InfoPill label="Age" value={String(contract?.age || latestSeason?.age)} bg={bgCard} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
+              {age ? (
+                <InfoPill label="Age" value={String(age)} bg={bgCard} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
               ) : null}
-              {contract?.handedness || latestSeason?.handedness ? (
-                <InfoPill label="Shoots" value={String(contract?.handedness || latestSeason?.handedness)} bg={bgCard} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
+              {handedness ? (
+                <InfoPill label="Shoots" value={String(handedness)} bg={bgCard} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
               ) : null}
-              {contract?.type ? (
-                <InfoPill label="Type" value={contract.type} bg={bgCard} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
+              {type ? (
+                <InfoPill label="Type" value={type} bg={bgCard} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
               ) : null}
               {draftInfo?.draftYear ? (
                 <InfoPill label="Draft" value={`${draftInfo.draftYear} R${draftInfo.round || '?'} #${draftInfo.overall || '?'}`} bg={bgCard} text={textColor} sub={textSecondary} mapTeam={mapTeam} />
@@ -539,7 +570,8 @@ export default function PlayerModal({
                 );
               })() : null}
             </View>
-            ) : null}
+              );
+            })()}
             {/* Contract */}
             {contract && contract.salary > 0 ? (
               <Section title="Contract" bg={bgCard} text={textColor} sub={textSecondary} border={borderColor}>
@@ -561,6 +593,11 @@ export default function PlayerModal({
                 accentColor={accentColor}
                 barColor={borderColor}
                 textSecondary={textSecondary}
+                selectedSeason={careerMode === 'specific' ? selectedSeason : null}
+                onSelectSeason={(season) => {
+                  setCareerMode('specific');
+                  setSelectedSeason(season);
+                }}
               />
             ) : null}
 
@@ -627,7 +664,7 @@ export default function PlayerModal({
                   <TouchableOpacity
                     key={opt.key}
                     style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: 'center', backgroundColor: careerMode === opt.key ? accentColor : 'transparent' }}
-                    onPress={() => setCareerMode(opt.key)}
+                    onPress={() => { setCareerMode(opt.key); setSelectedSeason(null); }}
                   >
                     <Text style={{ fontSize: 12, fontWeight: '600', color: careerMode === opt.key ? '#fff' : textSecondary }}>{opt.label}</Text>
                   </TouchableOpacity>
@@ -637,8 +674,12 @@ export default function PlayerModal({
 
             {/* Regular season stats (mode-driven) */}
             {careerTruei.length > 0 ? (() => {
+              const specificRow = careerMode === 'specific' && selectedSeason
+                ? careerTruei.find(s => s.season === selectedSeason)
+                : null;
               const subset = careerMode === 'single' ? careerTruei.slice(0, 1)
                 : careerMode === 'last3' ? careerTruei.slice(0, 3)
+                : careerMode === 'specific' ? (specificRow ? [specificRow] : careerTruei.slice(0, 1))
                 : careerTruei;
               const isGoalie = playerData?.isGoalie || subset[0]?.sha != null;
               const summary = isGoalie
@@ -646,6 +687,7 @@ export default function PlayerModal({
                 : aggregateSeasons(subset, calculateTRUEi, false);
               const label = careerMode === 'single' ? `${formatSeasonLabel(subset[0]?.season)} Regular Season`
                 : careerMode === 'last3' ? `Last ${subset.length} Seasons · Regular`
+                : careerMode === 'specific' ? `${formatSeasonLabel(subset[0]?.season)} Regular Season`
                 : `All Seasons · Regular (${subset.length})`;
               return (
                 <Section title={label} bg={bgCard} text={textColor} sub={textSecondary} border={borderColor}>
@@ -661,7 +703,9 @@ export default function PlayerModal({
                 one regular-season row. Shows what drove the score. */}
             {calculateTRUEiBreakdown && careerTruei.length > 0 && !(playerData?.isGoalie || careerTruei[0]?.sha != null) ? (
               <TrueiBreakdownPanel
-                seasonRow={careerMode === 'single' ? careerTruei[0]
+                seasonRow={careerMode === 'specific' && selectedSeason
+                    ? (careerTruei.find(s => s.season === selectedSeason) || careerTruei[0])
+                  : careerMode === 'single' ? careerTruei[0]
                   : careerMode === 'last3' ? (careerTruei[0])
                   : careerTruei[0]}
                 calculateTRUEiBreakdown={calculateTRUEiBreakdown}
