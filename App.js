@@ -4341,8 +4341,12 @@ function MainApp() {
                 c.status === 'Minors' && c.salary > 1.0 &&
                 c.expiry_type !== 'COLLEGE' && c.expiry_type !== 'EUROPE'
               );
-              const retained = contractEntries.filter(([name, c]) => 
-                (c.retention_count || 0) > 0
+              // Only show players this team is actively paying retention on
+              // (status === 'Retained'). retention_count would also catch
+              // players acquired with retention from a previous team, where
+              // the retention slot belongs to that previous team, not us.
+              const retained = contractEntries.filter(([name, c]) =>
+                c.status === 'Retained'
               );
 
               // Small photo-bearing row for contract sections (Prospects,

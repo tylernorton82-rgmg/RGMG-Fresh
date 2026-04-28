@@ -384,7 +384,13 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
         // negative ratios from breaking visual bars.
         capMax: team.data.capHit + team.data.capSpace,
         contractCount: team.data.contractCount,
-        retainedCount: team.data.retainedCount || 0,
+        // Count retention slots used by THIS team — one per Retained contract
+        // row. Don't use a precomputed total or sum of retention_count: those
+        // include retentions paid by previous teams on players this team
+        // acquired with retention, which belong to those other teams' slots.
+        retainedCount: (team.data.players || []).filter(p =>
+          p.contract_type === 'signed' && p.status === 'Retained'
+        ).length,
         outgoingAAV: 0, // net leaving cap
         incomingAAV: 0,
         retainedOnBooks: 0, // new retentions this trade adds

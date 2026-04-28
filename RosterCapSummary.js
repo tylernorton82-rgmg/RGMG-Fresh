@@ -66,10 +66,14 @@ export default function RosterCapSummary({
       return c.status === 'NHL' || c.status === 'Minors' || c.status === 'Retained';
     }).length;
 
-    // Retention slots from contract data — ALL contracts
-    const retainedCount = allContractsArray.reduce((sum, c) => {
-      return sum + (c.retention_count || 0);
-    }, 0);
+    // Retention slots used by THIS team — one per "Retained" contract row.
+    // A Retained row means this team is paying the retained portion of a player
+    // who plays elsewhere. The contract's retention_count field reflects every
+    // retention on the contract (including ones paid by other teams), so summing
+    // it would over-count: a player acquired with retention from a previous team
+    // would be charged to the acquiring team's slots even though that team isn't
+    // paying anything.
+    const retainedCount = allContractsArray.filter(c => c.status === 'Retained').length;
 
     // Age — use contract age; skaters only for avg
     const ages = withContracts
