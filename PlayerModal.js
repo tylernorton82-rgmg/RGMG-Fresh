@@ -31,6 +31,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal, Platform } from 'react-native';
 import PlayerPhoto, { resolveRegenChain, fetchWikipediaPhoto } from './PlayerPhoto';
+import { fetchProxyOrUpstream } from './lib/apiClient.js';
 
 // Career sparkline — shows the player's per-season output as a tiny bar chart.
 // For skaters the bar height is points (G+A). For goalies we use SV% mapped
@@ -154,9 +155,19 @@ async function fetchRGMGPlayer(name) {
 
   const promise = (async () => {
     try {
-      const res = await fetch(`/api/rgmg-player?name=${encodeURIComponent(name)}`);
-      if (!res.ok) return null;
-      const data = await res.json();
+      // Vercel proxy wraps the response as { found, player }; on local dev we
+      // fall back to the upstream `/api/players/{name}` which returns the raw
+      // player object — wrap it to match the proxy shape so the consumer
+      // doesn't need to branch on transport.
+      const data = await fetchProxyOrUpstream(
+        `/api/rgmg-player?name=${encodeURIComponent(name)}`,
+        `/api/players/${encodeURIComponent(name)}`,
+        {
+          transformUpstream: (player) => ({ found: true, player }),
+          notFoundValue: { found: false },
+        },
+      );
+      if (!data) return null;
       const player = data?.found ? data.player : null;
       try {
         if (typeof localStorage !== 'undefined') {

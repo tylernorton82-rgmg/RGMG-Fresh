@@ -3,6 +3,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   TouchableOpacity,
   ActivityIndicator,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { NHL_TEAMS } from './CapDashboard';
 import PeteyRejection from './PeteyRejection';
+import { fetchProxyOrUpstream } from './lib/apiClient.js';
 
 const MOBILE_BREAKPOINT = 768;
 const MAX_TEAMS = 4;
@@ -107,8 +109,10 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
 
       (async () => {
         try {
-          const res = await fetch(`/api/team?name=${encodeURIComponent(t.name)}`);
-          const data = await res.json();
+          const data = await fetchProxyOrUpstream(
+            `/api/team?name=${encodeURIComponent(t.name)}`,
+            `/api/teams/${encodeURIComponent(t.name)}`,
+          );
           if (cancelRef.cancelled) return;
           // Only accept valid team responses (must have players array)
           if (!data || !Array.isArray(data.players)) {
@@ -313,6 +317,10 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
         }
       } else if (tx.kind === 'pick') {
         lines.push(`   ${asset.season} Round ${asset.round} (original: ${asset.original_team_name})`);
+        const cond = (tx.condition || '').trim();
+        if (cond) {
+          cond.split('\n').forEach((c) => lines.push(`   Condition: ${c}`));
+        }
       }
       lines.push('');
     });
@@ -419,9 +427,12 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
         const brokerRetained = player.salary * (brokerRet / 100);
         const toTeamReceivesAAV = player.salary - fromRetained - brokerRetained;
 
-        // From team
+        // From team — full salary leaves their books; the retained portion
+        // comes back via `retainedOnBooks`. Net cap relief = salary - retained.
+        // (Pre-fix bug: outgoingAAV used salary - retained AND we added
+        // retainedOnBooks back, double-counting the retention to zero relief.)
         if (result[tx.fromSlot]) {
-          result[tx.fromSlot].outgoingAAV += (player.salary - fromRetained);
+          result[tx.fromSlot].outgoingAAV += player.salary;
           result[tx.fromSlot].retainedOnBooks += fromRetained;
           result[tx.fromSlot].playersOut += 1;
           if (fromRet > 0) result[tx.fromSlot].newRetentions += 1;
@@ -772,6 +783,17 @@ function TransactionRow({ tx, teams, findAsset, onUpdate, onRemove, theme, isMob
             ) : (
               <Text style={styles.txDestText}>{tx.toSlot}: {teams.find(t => t.slot === tx.toSlot)?.name}</Text>
             )}
+          </View>
+          <View style={[styles.txControls, { marginTop: 6 }]}>
+            <Text style={styles.txLabel}>Conditions:</Text>
+            <TextInput
+              value={tx.condition || ''}
+              onChangeText={(v) => onUpdate({ condition: v })}
+              placeholder="e.g. Top-10 protected, becomes 2032 R1 if not conveyed"
+              placeholderTextColor={theme.textMuted}
+              style={styles.conditionInput}
+              multiline
+            />
           </View>
         </View>
         <TouchableOpacity onPress={onRemove} style={styles.removeBtn}>
@@ -1229,6 +1251,19 @@ function makeStyles(theme, isMobile = false) {
     txLabel: { color: theme.textMuted, fontSize: 11, marginRight: 6 },
     txDestBtn: { paddingVertical: 4, paddingHorizontal: 8, backgroundColor: theme.bg, borderRadius: 4, borderWidth: 1, borderColor: theme.border },
     txDestText: { color: theme.text, fontSize: 12 },
+    conditionInput: {
+      flex: 1,
+      minWidth: 220,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      backgroundColor: theme.bgInput,
+      color: theme.text,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: theme.border,
+      fontSize: 12,
+      fontFamily: 'inherit',
+    },
     txDestDropdown: {
       position: 'absolute',
       top: 34,

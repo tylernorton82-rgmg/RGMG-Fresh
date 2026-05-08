@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, ActivityIndicator } from 'react-native';
+import { fetchProxyOrUpstream } from './lib/apiClient.js';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const CACHE_KEY_PREFIX = 'rgmg_team_cache_';
@@ -36,9 +37,10 @@ function setCached(team, data) {
 async function fetchTeam(team) {
   const cached = getCached(team);
   if (cached) return { data: cached, fromCache: true };
-  const res = await fetch(`/api/team?name=${encodeURIComponent(team)}`);
-  if (!res.ok) throw new Error(`Failed to load ${team} (${res.status})`);
-  const data = await res.json();
+  const data = await fetchProxyOrUpstream(
+    `/api/team?name=${encodeURIComponent(team)}`,
+    `/api/teams/${encodeURIComponent(team)}`,
+  );
   if (!data || !Array.isArray(data.players)) throw new Error(`Invalid response for ${team}`);
   setCached(team, data);
   return { data, fromCache: false };

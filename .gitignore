@@ -1,6 +1,51 @@
-node_modules/ 
-.env 
-.vercel 
-.expo 
-dist/ 
-build/ 
+node_modules/
+.env
+.env.local
+.env.*.local
+.vercel
+.expo
+dist/
+build/
+
+# Large external analytics datasets (MoneyPuck export, etc.) — regeneratable,
+# don't bloat git history.
+skaters.csv
+*.csv
+
+# Belt-and-suspenders: the private trade-calc engine and its audit/report
+# archive now live in C:\dev\rgmg-trade-calc (separate repo). These globs
+# stay in .gitignore so any accidental copy-back can't sneak into git.
+TradeCalcPro/
+GarVerify.js
+TradeSearch.js
+lib/trueiG.js
+lib/tradeValueEngine.js
+RGMG_Trade_Calculator_*.md
+_trade_calc/
+analytics/
+
+# Audit/report markdown patterns — internal calc methodology
+*_audit.md
+*_audit_*.md
+*_report.md
+*_findings.md
+*_diagnostic.md
+*_diagnostic_*.md
+*_smoke*.md
+*stress_test*.md
+*_validation.md
+*_analysis.md
+*_predictor_*.md
+*_calibration*.md
+*_recalibration*.md
+*_adjustment.md
+*_distribution_model.md
+*_overvalued*.md
+*_fit.md
+*_fix*.md
+*_bug_report*.md
+*_integration_fix.md
+wire_in_plan.md
+
+# Claude Code session data
+.claude/

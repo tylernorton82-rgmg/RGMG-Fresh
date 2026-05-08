@@ -27,7 +27,9 @@ import PlayerModal from './PlayerModal';
 // component evaluation until needed. Saves ~60-80KB on first paint.
 const TradeCalc = React.lazy(() => import('./TradeCalcV2'));
 const Remix = React.lazy(() => import('./Remix'));
-
+// Phase 1 wiring — unconditional for visual review. Phase 6 will gate this
+// behind EXPO_PUBLIC_ENABLE_TRADE_CALC and conditionally lazy-load only
+// when the flag is on.
 // Error Boundary Component
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -275,9 +277,10 @@ function MainApp() {
 
     if (!teamData) {
       try {
-        const res = await fetch(`/api/team?name=${encodeURIComponent(teamName)}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        teamData = await res.json();
+        teamData = await fetchProxyOrUpstream(
+          `/api/team?name=${encodeURIComponent(teamName)}`,
+          `/api/teams/${encodeURIComponent(teamName)}`,
+        );
         if (!teamData || !Array.isArray(teamData.players)) {
           throw new Error('Invalid team data');
         }
@@ -429,6 +432,62 @@ function MainApp() {
       return saved ? JSON.parse(saved) : {};
     } catch { return {}; }
   });
+
+  // League contracts loader — lifted out of ContractValueScatter so it can
+  // be called from any tab. Kept after the private trade-calc was split out
+  // because ContractValueScatter (inside CapDashboard) still references
+  // these via closure.
+  const [loadingLeague, setLoadingLeague] = useState(false);
+  const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
+  const loadLeagueContracts = useCallback(async () => {
+    if (loadingLeague) return;
+    const teamNames = Object.keys(TEAM_LOGOS);
+    setLoadingLeague(true);
+    setLoadProgress({ done: 0, total: teamNames.length });
+    const combined = {};
+    const BATCH_SIZE = 4;
+    for (let i = 0; i < teamNames.length; i += BATCH_SIZE) {
+      const batch = teamNames.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (teamName) => {
+        try {
+          const CACHE_KEY = `rgmg_team_cache_${teamName}`;
+          let teamData;
+          try {
+            const cached = await storageGetItem(CACHE_KEY);
+            if (cached) teamData = JSON.parse(cached);
+          } catch {}
+          if (!teamData) {
+            teamData = await fetchProxyOrUpstream(
+              `/api/team?name=${encodeURIComponent(teamName)}`,
+              `/api/teams/${encodeURIComponent(teamName)}`,
+            );
+            try { await storageSetItem(CACHE_KEY, JSON.stringify(teamData)); } catch {}
+          }
+          (teamData.players || []).forEach(p => {
+            const ct = String(p.contract_type || '').toLowerCase();
+            if (ct !== 'signed' && ct !== 'elc') return;
+            combined[p.name] = {
+              salary: parseFloat(p.salary) || 0,
+              age: parseInt(p.age) || 0,
+              retention_count: parseInt(p.retention_count) || 0,
+              contract_duration: parseInt(p.contract_duration) || 0,
+              expiry_type: p.expiry_type || '',
+              status: p.status || '',
+              pos: p.position || '',
+              team: teamName,
+              contract_type: ct,
+            };
+          });
+        } catch (e) {
+          console.error(`Load failed for ${teamName}:`, e);
+        }
+      }));
+      setLoadProgress({ done: Math.min(i + BATCH_SIZE, teamNames.length), total: teamNames.length });
+    }
+    setLeagueContracts(combined);
+    try { window.localStorage.setItem('leagueContracts', JSON.stringify(combined)); } catch {}
+    setLoadingLeague(false);
+  }, [loadingLeague]);
   const [rosterSearchQuery, setRosterSearchQuery] = useState('');
   const [rosterSeason, setRosterSeason] = useState(null);
   const [rosterSeasonType, setRosterSeasonType] = useState('regular'); // 'regular' or 'playoffs'
@@ -573,6 +632,28 @@ function MainApp() {
     }
   }, [modalPlayerName]);
 
+  // Try the Vercel proxy first; fall back to the upstream server
+  // directly. Local dev (no `vercel dev`) returns the SPA's HTML index
+  // for /api/* paths instead of JSON, which explodes on JSON.parse.
+  //
+  // `upstreamPathOverride` (optional) handles endpoints whose proxy path
+  // differs from upstream — notably `/api/team?name=X` (proxy, query
+  // param) → `/api/teams/X` (upstream, path segment).
+  const UPSTREAM = 'http://146.235.205.152:5000';
+  const fetchProxyOrUpstream = async (path, upstreamPathOverride = null) => {
+    try {
+      const r = await fetch(path);
+      if (r.ok) {
+        const ct = r.headers.get('content-type') || '';
+        if (ct.includes('application/json')) return await r.json();
+      }
+    } catch (_) { /* fall through to upstream */ }
+    const upstreamPath = upstreamPathOverride || path;
+    const r2 = await fetch(`${UPSTREAM}${upstreamPath}`);
+    if (!r2.ok) throw new Error(`upstream ${upstreamPath} HTTP ${r2.status}`);
+    return r2.json();
+  };
+
   const loadPlayers = async () => {
     try {
       // Try migration but don't fail if it doesn't work
@@ -702,21 +783,30 @@ function MainApp() {
       };
 
       console.log('Fetching seasons from API...');
-      const seasonsRes = await fetch('/api/seasons');
-      if (!seasonsRes.ok) throw new Error(`Seasons fetch failed: ${seasonsRes.status}`);
-      const seasonsList = await seasonsRes.json();
+      const seasonsList = await fetchProxyOrUpstream('/api/seasons');
       console.log(`Loaded ${seasonsList.length} seasons`);
 
-      // Build array of fetch jobs: one per (season, type) pair for players AND goalies
+      // Build array of fetch jobs: one per (season, type) pair for players AND goalies.
+      // `url` = Vercel proxy path (works on the live deployment via api/players.js
+      //         + api/goalies.js serverless functions).
+      // `upstreamUrl` = direct upstream path the proxy functions translate to
+      //         (`/api/seasons/{id}/stats/type/{normal|playoff}/{players|goalies}`).
+      //         Used as the fallback when the proxy isn't available — e.g. on
+      //         local Expo dev where there's no serverless layer. Without this
+      //         override, the fallback would re-request the proxy URL upstream
+      //         (the bare `/api/players?season=...` shape doesn't exist on the
+      //         upstream server and returns HTML, breaking JSON parsing).
       const fetchJobs = [];
       seasonsList.forEach(s => {
         ['regular', 'playoffs'].forEach(type => {
+          const upstreamType = type === 'playoffs' ? 'playoff' : 'normal';
           fetchJobs.push({
             kind: 'players',
             season: s.season,
             seasonId: s.id,
             type,
             url: `/api/players?season=${s.id}&type=${type}`,
+            upstreamUrl: `/api/seasons/${s.id}/stats/type/${upstreamType}/players`,
           });
           fetchJobs.push({
             kind: 'goalies',
@@ -724,6 +814,7 @@ function MainApp() {
             seasonId: s.id,
             type,
             url: `/api/goalies?season=${s.id}&type=${type}`,
+            upstreamUrl: `/api/seasons/${s.id}/stats/type/${upstreamType}/goalies`,
           });
         });
       });
@@ -732,9 +823,8 @@ function MainApp() {
 
       const results = await Promise.all(
         fetchJobs.map(job =>
-          fetch(job.url)
-            .then(r => r.ok ? r.json() : [])
-            .then(data => ({ ...job, data }))
+          fetchProxyOrUpstream(job.url, job.upstreamUrl)
+            .then(data => ({ ...job, data: Array.isArray(data) ? data : [] }))
             .catch(err => {
               console.warn(`Failed: ${job.url}`, err);
               return { ...job, data: [] };
@@ -1667,28 +1757,33 @@ function MainApp() {
   };
 
 
-  const calculateTRUEi = (player, allPlayers = playerDatabase) => {
+  const calculateTRUEi = (player, allPlayers = playerDatabase, options = {}) => {
     // Defensive: rows with missing/falsy pos (can happen for goalies that
     // came through the skater code path) would crash on .toUpperCase().
     // Treat as non-center non-D forward fallback.
     const pos = player && player.pos ? player.pos : '';
     const isDefenseman = isDefensemanPos(pos);
     const isCenter = pos.toUpperCase().startsWith('C');
-    
+
     // Shooting value with capped downside (scaled by position)
     const expectedSPct = isDefenseman ? 0.0222 : 0.1325;
     const shootingFloor = isDefenseman ? -0.0084 : -0.05;
     const shootingDiff = Math.max((player.sPct / 100) - expectedSPct, shootingFloor);
     const shootingValue = player.sog * shootingDiff;
-    
+
+    // PIM is a real discount to TrueI — subtract it by default. Callers can
+    // opt out with `excludePIM:true` (e.g. comp-projections for regens, where
+    // PIM doesn't carry over). Flipped briefly on 2026-05-03 then reverted
+    // same day: penalty is real value lost to the bench, keep it in.
+    const pimPenalty = options.excludePIM ? 0 : (player.pim * 0.12);
     let baseValue = (
-      player.g + 
-      (player.a * 0.7) + 
-      (player.ta * 0.15) - 
+      player.g +
+      (player.a * 0.7) +
+      (player.ta * 0.15) -
       (player.ga * 0.075) +
       (player.ht * 0.025) +
       shootingValue -
-      (player.pim * 0.12) - 
+      pimPenalty -
       (player.ppp * 0.25)
     );
 
@@ -1996,8 +2091,12 @@ function MainApp() {
 
   // Full-league SvPct — small helper used by tier baselines for goalies.
   const leagueAvgSvPctFull = useMemo(() => {
-    const saves = goalieDatabase.reduce((s, g) => s + ((g.sha || 0) - (g.ga || 0)), 0);
-    const shots = goalieDatabase.reduce((s, g) => s + (g.sha || 0), 0);
+    // GP >= 20 filters out partial-season call-ups and brief-backup samples
+    // that would skew the league baseline when the current season is
+    // in-progress (API auto-update can include partial-season data).
+    const eligible = goalieDatabase.filter(g => (parseInt(g.gp) || 0) >= 20);
+    const saves = eligible.reduce((s, g) => s + ((g.sha || 0) - (g.ga || 0)), 0);
+    const shots = eligible.reduce((s, g) => s + (g.sha || 0), 0);
     return shots > 0 ? saves / shots : 0.905;
   }, [goalieDatabase]);
 
@@ -2221,9 +2320,13 @@ function MainApp() {
     const toIdx = endIdx === -1 ? fromIdx : Math.max(startIdx, endIdx);
     const seasonsToUse = seasonsForType.length > 0 ? seasonsForType.slice(fromIdx, toIdx + 1) : [defaultSeason];
     
-    // Calculate league avg SV% for GSAA
+    // Calculate league avg SV% for GSAA. GP >= 20 excludes partial-season
+    // and tiny-backup samples so the baseline isn't skewed when an
+    // in-progress season is in `seasonsToUse`.
     const allGoaliesForAvg = goalieDatabase.filter(
-      g => seasonsToUse.includes(normalizeSeasonValue(g.season || '2024-25')) && getSeasonType(g) === statsSeasonType
+      g => seasonsToUse.includes(normalizeSeasonValue(g.season || '2024-25'))
+        && getSeasonType(g) === statsSeasonType
+        && (parseInt(g.gp) || 0) >= 20
     );
     const totalSaves = allGoaliesForAvg.reduce((sum, g) => sum + (g.sha - g.ga), 0);
     const totalShots = allGoaliesForAvg.reduce((sum, g) => sum + g.sha, 0);
@@ -3759,9 +3862,12 @@ function MainApp() {
   const renderMyRosterTab = () => {
     const currentSeason = rosterSeason || (availableSeasons.length > 0 ? availableSeasons[0] : '2024-25');
     
-    // Calculate league avg SV% for GSAA
-    const seasonGoaliesForCalc = goalieDatabase.filter(g => 
-      normalizeSeasonValue(g.season || '2024-25') === normalizeSeasonValue(currentSeason) && getSeasonType(g) === rosterSeasonType
+    // Calculate league avg SV% for GSAA. GP >= 20 keeps partial-season
+    // backups from polluting the baseline if currentSeason is in-progress.
+    const seasonGoaliesForCalc = goalieDatabase.filter(g =>
+      normalizeSeasonValue(g.season || '2024-25') === normalizeSeasonValue(currentSeason)
+        && getSeasonType(g) === rosterSeasonType
+        && (parseInt(g.gp) || 0) >= 20
     );
     const totalSaves = seasonGoaliesForCalc.reduce((sum, g) => sum + (g.sha - g.ga), 0);
     const totalShots = seasonGoaliesForCalc.reduce((sum, g) => sum + g.sha, 0);
@@ -4499,8 +4605,11 @@ function MainApp() {
     const seasonPlayers = teamStatsSeasonType === 'playoffs' ? seasonPlayersPlayoffs : seasonPlayersRegular;
     const seasonGoalies = teamStatsSeasonType === 'playoffs' ? seasonGoaliesPlayoffs : seasonGoaliesRegular;
     
-    const totalSaves = seasonGoalies.reduce((sum, g) => sum + (g.sha - g.ga), 0);
-    const totalShots = seasonGoalies.reduce((sum, g) => sum + g.sha, 0);
+    // GP >= 20 — exclude partial-season and tiny backup samples from the
+    // league-avg baseline (defends against API in-progress data pollution).
+    const eligibleSeasonGoalies = seasonGoalies.filter(g => (parseInt(g.gp) || 0) >= 20);
+    const totalSaves = eligibleSeasonGoalies.reduce((sum, g) => sum + (g.sha - g.ga), 0);
+    const totalShots = eligibleSeasonGoalies.reduce((sum, g) => sum + g.sha, 0);
     const leagueAvgSvPct = totalShots > 0 ? totalSaves / totalShots : 0.905;
     
     const seasonsToRender = teamStatsAllSeasons ? seasonsToUse : [currentSeason];
@@ -4990,55 +5099,9 @@ function MainApp() {
     const [yAxis, setYAxis] = useState('rating'); // 'rating' or 'truei'
     const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
     const [hoveredIdx, setHoveredIdx] = useState(null);
-    const [loadingLeague, setLoadingLeague] = useState(false);
-    const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
-
-    const loadLeagueContracts = async () => {
-      const teamNames = Object.keys(TEAM_LOGOS);
-      setLoadingLeague(true);
-      setLoadProgress({ done: 0, total: teamNames.length });
-      const combined = {};
-      // Fetch in small parallel batches to speed things up without hammering.
-      const BATCH_SIZE = 4;
-      for (let i = 0; i < teamNames.length; i += BATCH_SIZE) {
-        const batch = teamNames.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (teamName) => {
-          try {
-            const CACHE_KEY = `rgmg_team_cache_${teamName}`;
-            let teamData;
-            try {
-              const cached = await storageGetItem(CACHE_KEY);
-              if (cached) teamData = JSON.parse(cached);
-            } catch {}
-            if (!teamData) {
-              const res = await fetch(`/api/team?name=${encodeURIComponent(teamName)}`);
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              teamData = await res.json();
-              try { await storageSetItem(CACHE_KEY, JSON.stringify(teamData)); } catch {}
-            }
-            (teamData.players || []).forEach(p => {
-              if (p.contract_type !== 'signed') return;
-              combined[p.name] = {
-                salary: parseFloat(p.salary) || 0,
-                age: parseInt(p.age) || 0,
-                retention_count: parseInt(p.retention_count) || 0,
-                contract_duration: parseInt(p.contract_duration) || 0,
-                expiry_type: p.expiry_type || '',
-                status: p.status || '',
-                pos: p.position || '',
-                team: teamName,
-              };
-            });
-          } catch (e) {
-            console.error(`Load failed for ${teamName}:`, e);
-          }
-        }));
-        setLoadProgress({ done: Math.min(i + BATCH_SIZE, teamNames.length), total: teamNames.length });
-      }
-      setLeagueContracts(combined);
-      try { window.localStorage.setItem('leagueContracts', JSON.stringify(combined)); } catch {}
-      setLoadingLeague(false);
-    };
+    // loadingLeague / loadProgress / loadLeagueContracts are lifted to MainApp
+    // scope so Trade Search can fire the loader on mount. ContractValueScatter
+    // resolves these via closure — no name change needed below.
 
     const leagueLoaded = Object.keys(leagueContracts).length > 0;
     // Fall back to rosterContracts (your team only) if league not yet loaded
@@ -5517,7 +5580,7 @@ function MainApp() {
           <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff', marginLeft: 8 }}>RGMG</Text>
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.tab, activeTab === 'stats' && styles.activeTab]}
           onPress={() => setActiveTab('stats')}
         >
@@ -5525,7 +5588,7 @@ function MainApp() {
             Stats
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.tab, activeTab === 'roster' && styles.activeTab]}
           onPress={() => setActiveTab('roster')}
         >
@@ -5557,7 +5620,7 @@ function MainApp() {
             Trade Calc
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.tab, activeTab === 'analysis' && styles.activeTab]}
           onPress={() => setActiveTab('analysis')}
         >

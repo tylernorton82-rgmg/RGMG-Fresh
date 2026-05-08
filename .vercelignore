@@ -1,0 +1,40 @@
+# Files excluded from Vercel deploy uploads.
+#
+# After the private trade-calc split (private repo lives at
+# C:\dev\rgmg-trade-calc), the OneDrive folder no longer contains the
+# private engine, components, or audit archive. These globs stay as
+# belt-and-suspenders against any accidental re-introduction — Vercel
+# will skip them even if a stray copy ever lands here.
+
+# Private feature code (gone — kept here as a guard)
+GarVerify.js
+TradeSearch.js
+TradeCalcPro/
+lib/trueiG.js
+lib/tradeValueEngine.js
+_trade_calc/
+analytics/
+
+# Audit/report markdown patterns
+*_audit.md
+*_audit_*.md
+*_report.md
+*_findings.md
+*_diagnostic.md
+*_smoke*.md
+*stress_test*.md
+*_validation.md
+*_predictor_*.md
+*_calibration*.md
+*_recalibration*.md
+*_adjustment.md
+*_distribution_model.md
+*_overvalued*.md
+*_fit.md
+*_fix*.md
+*_bug_report*.md
+wire_in_plan.md
+
+# Local env
+.env.local
+.env.*.local
