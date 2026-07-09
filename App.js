@@ -1765,11 +1765,16 @@ function MainApp() {
     const isDefenseman = isDefensemanPos(pos);
     const isCenter = pos.toUpperCase().startsWith('C');
 
-    // Shooting value with capped downside (scaled by position)
+    // Shot value on VOLUME, not conversion %. There is no shot-location/danger
+    // data, so actual shooting % is treated as luck: value every shot at the
+    // position's expected conversion rate. This REPLACES both the old
+    // shooting-% term (sog × (actual% − expected%), floored) AND the raw
+    // actual-goals term — so shot GENERATION is the rewarded skill and
+    // conversion % (high or low) no longer swings TrueI. A league-average
+    // finisher is unchanged; snipers regress toward their shot volume, and
+    // low-% shooters / point forwards are no longer docked for shot selection.
     const expectedSPct = isDefenseman ? 0.0222 : 0.1325;
-    const shootingFloor = isDefenseman ? -0.0084 : -0.05;
-    const shootingDiff = Math.max((player.sPct / 100) - expectedSPct, shootingFloor);
-    const shootingValue = player.sog * shootingDiff;
+    const shotVolumeValue = player.sog * expectedSPct;   // expected goals from volume
 
     // PIM is a real discount to TrueI — subtract it by default. Callers can
     // opt out with `excludePIM:true` (e.g. comp-projections for regens, where
@@ -1777,12 +1782,11 @@ function MainApp() {
     // same day: penalty is real value lost to the bench, keep it in.
     const pimPenalty = options.excludePIM ? 0 : (player.pim * 0.12);
     let baseValue = (
-      player.g +
+      shotVolumeValue +
       (player.a * 0.7) +
       (player.ta * 0.15) -
       (player.ga * 0.075) +
-      (player.ht * 0.025) +
-      shootingValue -
+      (player.ht * 0.025) -
       pimPenalty -
       (player.ppp * 0.25)
     );
@@ -1872,19 +1876,18 @@ function MainApp() {
     const isCenter = pos.toUpperCase().startsWith('C');
 
     const expectedSPct = isDefenseman ? 0.0222 : 0.1325;
-    const shootingFloor = isDefenseman ? -0.0084 : -0.05;
-    const shootingDiff = Math.max((player.sPct / 100) - expectedSPct, shootingFloor);
-    const shootingValueRaw = player.sog * shootingDiff;
+    const shotVolumeValueRaw = player.sog * expectedSPct;   // volume × expected %, no actual-%
 
-    // Per-82 unscaled base contributions (before position/role multipliers)
+    // Per-82 unscaled base contributions (before position/role multipliers).
+    // Goals + the old shooting-vs-expected term are replaced by a single
+    // volume term (shots × position expected %), so conversion % never enters.
     const scale82 = 82 / player.gp;
     const parts = [
-      { label: 'Goals', raw: player.g, value: player.g * scale82 },
+      { label: 'Shot volume (× exp %)', raw: player.sog, value: shotVolumeValueRaw * scale82 },
       { label: 'Assists (×0.7)', raw: player.a, value: player.a * 0.7 * scale82 },
       { label: 'Takeaways (×0.15)', raw: player.ta, value: player.ta * 0.15 * scale82 },
       { label: 'Giveaways (×−0.075)', raw: player.ga, value: -player.ga * 0.075 * scale82 },
       { label: 'Hits (×0.025)', raw: player.ht, value: player.ht * 0.025 * scale82 },
-      { label: 'Shooting vs expected', raw: `${player.sPct?.toFixed(1) ?? 0}%`, value: shootingValueRaw * scale82 },
       { label: 'Penalties (×−0.12)', raw: player.pim, value: -player.pim * 0.12 * scale82 },
       { label: 'PPP clip (×−0.25)', raw: player.ppp, value: -player.ppp * 0.25 * scale82 },
     ];
