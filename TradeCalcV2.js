@@ -26,6 +26,12 @@ function formatMoney(n) {
   return `$${Number(n).toFixed(2)}M`;
 }
 
+// Retained cap hits round DOWN to the smallest displayed decimal ($0.01M),
+// never up — matches how the league floors retained salary.
+function floorRetained(n) {
+  return Math.floor((Number(n) || 0) * 100) / 100;
+}
+
 function signedMoney(n) {
   if (n === null || n === undefined || isNaN(Number(n))) return '—';
   const num = Number(n);
@@ -190,8 +196,12 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
       if (asset) {
         const yrs = Number(asset.contract_duration) || 0;
         const sal = Number(asset.salary) || 0;
-        if (yrs === 0 && sal === 0) {
-          const msg = `⚠️  ${asset.name} has a pending 0×0 contract.\n\nUnsigned players can't be traded until negotiation is finalized on rgmg.ca.\n\nAdd to trade anyway?`;
+        // Only UFAs can't be traded when unsigned — their rights walk free.
+        // RFA rights transfer with the player, so an unsigned RFA is tradeable
+        // at regular value; exempt them from the block (matches canBeTraded).
+        const isRFA = String(asset.expiry_type || '').toUpperCase() === 'RFA';
+        if (yrs === 0 && sal === 0 && !isRFA) {
+          const msg = `⚠️  ${asset.name} has a pending 0×0 contract.\n\nUnsigned UFAs can't be traded until negotiation is finalized on rgmg.ca.\n\nAdd to trade anyway?`;
           if (typeof window !== 'undefined' && window.confirm) {
             if (!window.confirm(msg)) return;
           }
@@ -306,10 +316,10 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
         if (fromRet + brokerRet > maxPerTx) brokerRet = Math.max(0, maxPerTx - fromRet);
 
         if (fromRet > 0) {
-          lines.push(`   ${fromTeam?.name} retains ${fromRet}% (${fmtMoney(asset.salary * fromRet / 100)})`);
+          lines.push(`   ${fromTeam?.name} retains ${fromRet}% (${fmtMoney(floorRetained(asset.salary * fromRet / 100))})`);
         }
         if (brokerTeam && brokerRet > 0) {
-          lines.push(`   ${brokerTeam.name} retains ${brokerRet}% (${fmtMoney(asset.salary * brokerRet / 100)})`);
+          lines.push(`   ${brokerTeam.name} retains ${brokerRet}% (${fmtMoney(floorRetained(asset.salary * brokerRet / 100))})`);
         }
         if (fromRet > 0 || brokerRet > 0) {
           const remaining = asset.salary * (1 - (fromRet + brokerRet) / 100);
@@ -423,8 +433,8 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
           brokerRet = Math.max(0, maxPerTx - fromRet);
         }
 
-        const fromRetained = player.salary * (fromRet / 100);
-        const brokerRetained = player.salary * (brokerRet / 100);
+        const fromRetained = floorRetained(player.salary * (fromRet / 100));
+        const brokerRetained = floorRetained(player.salary * (brokerRet / 100));
         const toTeamReceivesAAV = player.salary - fromRetained - brokerRetained;
 
         // From team — full salary leaves their books; the retained portion
@@ -480,8 +490,10 @@ export default function TradeCalcV2({ theme, seasons, playerDatabase, calculateT
       if (!asset) return;
       const yrs = Number(asset.contract_duration) || 0;
       const sal = Number(asset.salary) || 0;
-      if (yrs === 0 && sal === 0) {
-        out.push(`⚠️ ${asset.name} is on a 0×0 pending contract — unsigned players cannot be traded until negotiation finalizes on rgmg.ca.`);
+      // RFA rights are tradeable even when unsigned; only UFAs are blocked.
+      const isRFA = String(asset.expiry_type || '').toUpperCase() === 'RFA';
+      if (yrs === 0 && sal === 0 && !isRFA) {
+        out.push(`⚠️ ${asset.name} is on a 0×0 pending contract — unsigned UFAs cannot be traded until negotiation finalizes on rgmg.ca.`);
       }
     });
 
@@ -812,7 +824,7 @@ function TransactionRow({ tx, teams, findAsset, onUpdate, onRemove, theme, isMob
 
   const fromRet = Math.max(0, Math.min(maxPerTx, tx.retentionPct || 0));
   const brokerRet = tx.brokerSlot ? Math.max(0, Math.min(maxPerTx, tx.brokerRetentionPct || 0)) : 0;
-  const retainedTotal = p.salary * ((fromRet + brokerRet) / 100);
+  const retainedTotal = floorRetained(p.salary * ((fromRet + brokerRet) / 100));
   const destReceivesAAV = p.salary - retainedTotal;
 
   // Effective max for each side given the other side's current value
