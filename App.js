@@ -1765,16 +1765,11 @@ function MainApp() {
     const isDefenseman = isDefensemanPos(pos);
     const isCenter = pos.toUpperCase().startsWith('C');
 
-    // Shot value on VOLUME, not conversion %. There is no shot-location/danger
-    // data, so actual shooting % is treated as luck: value every shot at the
-    // position's expected conversion rate. This REPLACES both the old
-    // shooting-% term (sog × (actual% − expected%), floored) AND the raw
-    // actual-goals term — so shot GENERATION is the rewarded skill and
-    // conversion % (high or low) no longer swings TrueI. A league-average
-    // finisher is unchanged; snipers regress toward their shot volume, and
-    // low-% shooters / point forwards are no longer docked for shot selection.
-    const expectedSPct = isDefenseman ? 0.0222 : 0.1325;
-    const shotVolumeValue = player.sog * expectedSPct;   // expected goals from volume
+    // The shooting-% bonus/penalty (sog × (actual% − expected%), floored) is
+    // REMOVED — it rewarded/penalized conversion %, which is luck (no
+    // shot-location data) and unfairly docked low-% point/PP shooters and D who
+    // play wing. Goals still count at 1; shot generation is still credited by
+    // the team-context Shot-rate z-score further below. Nothing else changes.
 
     // PIM is a real discount to TrueI — subtract it by default. Callers can
     // opt out with `excludePIM:true` (e.g. comp-projections for regens, where
@@ -1782,7 +1777,7 @@ function MainApp() {
     // same day: penalty is real value lost to the bench, keep it in.
     const pimPenalty = options.excludePIM ? 0 : (player.pim * 0.12);
     let baseValue = (
-      shotVolumeValue +
+      player.g +
       (player.a * 0.7) +
       (player.ta * 0.15) -
       (player.ga * 0.075) +
@@ -1875,15 +1870,11 @@ function MainApp() {
     const isDefenseman = isDefensemanPos(pos);
     const isCenter = pos.toUpperCase().startsWith('C');
 
-    const expectedSPct = isDefenseman ? 0.0222 : 0.1325;
-    const shotVolumeValueRaw = player.sog * expectedSPct;   // volume × expected %, no actual-%
-
     // Per-82 unscaled base contributions (before position/role multipliers).
-    // Goals + the old shooting-vs-expected term are replaced by a single
-    // volume term (shots × position expected %), so conversion % never enters.
+    // The old shooting-vs-expected term is removed; Goals count at 1.
     const scale82 = 82 / player.gp;
     const parts = [
-      { label: 'Shot volume (× exp %)', raw: player.sog, value: shotVolumeValueRaw * scale82 },
+      { label: 'Goals', raw: player.g, value: player.g * scale82 },
       { label: 'Assists (×0.7)', raw: player.a, value: player.a * 0.7 * scale82 },
       { label: 'Takeaways (×0.15)', raw: player.ta, value: player.ta * 0.15 * scale82 },
       { label: 'Giveaways (×−0.075)', raw: player.ga, value: -player.ga * 0.075 * scale82 },
