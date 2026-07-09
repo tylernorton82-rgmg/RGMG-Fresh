@@ -3881,19 +3881,40 @@ function MainApp() {
     const rosterSkaters = Array.isArray(myRoster) ? myRoster : (myRoster.skaters || []);
     const rosterGoalies = Array.isArray(myRoster) ? [] : (myRoster.goalies || []);
     
+    // Statless prospects (no NHL season) still enter the pool via a fallback
+    // entry — so an added prospect shows in the roster AND the Lines Builder and
+    // can be slotted by hand. TrueI 0 / isProspect; position + handedness come
+    // from the team contract. Non-prospect names with no stats still drop.
+    const isProspectContract = (c) => !!c && (
+      c.expiry_type === 'COLLEGE' || c.expiry_type === 'EUROPE' ||
+      (c.status === 'Minors' && (Number(c.salary) || 0) <= 1.0)
+    );
+    const prospectFallback = (playerName) => {
+      const c = rosterContracts?.[playerName];
+      if (!isProspectContract(c)) return null;
+      return {
+        name: playerName, pos: c.pos || '', position: c.pos || '', season: currentSeason,
+        age: c.age || 0, gp: 0, g: 0, a: 0, ta: 0, ga: 0, ht: 0, sog: 0,
+        sPct: 0, pim: 0, ppp: 0, atoi: 0, appt: 0, apkt: 0, foPct: 0, plusMinus: 0,
+        truei: 0, truei3yr: 0, replacementLevel: 'Prospect', expectedTruei: 0,
+        vsReplacement: 0, roleTier: 'L4', handedness: c.handedness || '',
+        playerType: c.type || '', isProspect: true, type: 'skater',
+      };
+    };
+
     // Get latest season data for roster skaters, plus 3-year weighted TRUEi
     const rosterWithStats = rosterSkaters.map(playerName => {
       const playerGroup = groupedPlayers.find(p =>
         p.name.toLowerCase() === playerName.toLowerCase()
       );
 
-      if (!playerGroup) return null;
+      if (!playerGroup) return prospectFallback(playerName);
 
       // Get most recent season (primary data source for display + filters)
       const latestSeason = playerGroup.seasons.find(
         s => normalizeSeasonValue(s.season || '2024-25') === normalizeSeasonValue(currentSeason) && getSeasonType(s) === rosterSeasonType
       );
-      if (!latestSeason) return null;
+      if (!latestSeason) return prospectFallback(playerName);
 
       const truei = parseFloat(calculateTRUEi(latestSeason));
 
@@ -4441,7 +4462,19 @@ function MainApp() {
               const contractEntries = Object.entries(rosterContracts || {});
               // Prospects = COLLEGE, EUROPE, or Minors-status contracts under $1M.
               // Anything Minors over $1M goes to Buried instead.
+              const inRoster = (n) => rosterSkaters.includes(n) || rosterGoalies.includes(n);
+              // Add a prospect to the lineup pool + roster (skater or goalie by
+              // position). They then render as a roster row and become available
+              // in the Lines Builder dropdowns, slottable by hand.
+              const addProspectToLineup = (name, c) => {
+                if (inRoster(name)) return;
+                if (/^G/.test(c?.pos || '')) updateRoster(rosterSkaters, [...rosterGoalies, name]);
+                else updateRoster([...rosterSkaters, name], rosterGoalies);
+              };
+              // Hide prospects already added to the roster — they show as roster
+              // rows instead (removable there), which toggles them back here.
               const prospects = contractEntries.filter(([name, c]) => {
+                if (inRoster(name)) return false;
                 if (c.expiry_type === 'COLLEGE' || c.expiry_type === 'EUROPE') return true;
                 if (c.status === 'Minors' && (c.salary || 0) <= 1.0) return true;
                 return false;
@@ -4462,7 +4495,7 @@ function MainApp() {
               // Buried, Retained). Uses the same status-dot convention as
               // PlayerRosterRow so the "needs photo?" signal is consistent
               // across every row on this page.
-              const ContractPhotoRow = ({ name, c }) => {
+              const ContractPhotoRow = ({ name, c, onAdd }) => {
                 const [src, setSrc] = React.useState('loading');
                 const handleResolved = React.useCallback(({ source }) => {
                   setSrc(source || 'flag');
@@ -4501,11 +4534,19 @@ function MainApp() {
                     <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600', minWidth: 60, textAlign: 'right' }}>
                       ${(c.salary || 0).toFixed(2)}M
                     </Text>
+                    {onAdd && (
+                      <TouchableOpacity
+                        onPress={() => onAdd(name, c)}
+                        style={{ marginLeft: 8, backgroundColor: '#2e7d32', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>＋ Lineup</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 );
               };
 
-              const ContractSection = ({ title, rows, color, showBuriedMath }) => {
+              const ContractSection = ({ title, rows, color, showBuriedMath, onAdd }) => {
                 if (rows.length === 0) return null;
                 const totalSalary = rows.reduce((s, [_, c]) => s + (c.salary || 0), 0);
                 const buriedCap = showBuriedMath 
@@ -4524,7 +4565,7 @@ function MainApp() {
                       </Text>
                     </View>
                     {rows.map(([name, c]) => (
-                      <ContractPhotoRow key={name} name={name} c={c} />
+                      <ContractPhotoRow key={name} name={name} c={c} onAdd={onAdd} />
                     ))}
                   </View>
                 );
@@ -4532,7 +4573,7 @@ function MainApp() {
 
               return (
                 <>
-                  <ContractSection title="🎓 Prospects" rows={prospects} color="#795548" />
+                  <ContractSection title="🎓 Prospects" rows={prospects} color="#795548" onAdd={addProspectToLineup} />
                   <ContractSection title="⚰️ Buried (Minors over $1M)" rows={buried} color="#ff9800" showBuriedMath />
                   <ContractSection title="🤝 Retained" rows={retained} color="#9c27b0" />
                 </>
